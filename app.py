@@ -1,68 +1,63 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
-import os
-import csv
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+import gspread
 import io
+import csv
 from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key'
 
-STUDENT_DB_FILE = 'students.csv'
-STAFF_DB_FILE = 'staff.csv'
-DRIVER_DB_FILE = 'drivers.csv'
-ATTENDANCE_FILE = 'attendance_log.csv'
-
-if not os.path.exists(ATTENDANCE_FILE):
-    with open(ATTENDANCE_FILE, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Timestamp', 'ID Number', 'Name', 'Role', 'Boarding Point', 'Shift', 'Scan Type', 'Bus ID'])
+# --- GOOGLE SHEETS SETUP ---
+try:
+    # This automatically finds the credentials.json file you put in Render's Secret Files!
+    gc = gspread.service_account(filename='credentials.json')
+    sh = gc.open('Transit Database')
+    
+    students_sheet = sh.worksheet("Students")
+    staff_sheet = sh.worksheet("Staff")
+    drivers_sheet = sh.worksheet("Drivers")
+    attendance_sheet = sh.worksheet("Attendance")
+except Exception as e:
+    print(f"CRITICAL ERROR: Could not connect to Google Sheets. {e}")
 
 def get_users_db(role):
-    if role == 'Driver':
-        db_file = DRIVER_DB_FILE
-        if not os.path.exists(db_file): return {}
-        db = {}
-        try:
-            with open(db_file, mode='r', encoding='utf-8-sig') as file:
-                reader = csv.DictReader(file)
-                for row in reader:
-                    # Key is contact number for unique lookup
-                    db[str(row['CONTACT NUMBER']).strip()] = {
-                        'name': str(row['DRIVER NAME']).strip(),
-                        'assigned_bus': str(row['BUS NUMBER']).strip()
-                    }
-            return db
-        except: return {}
-
-    db_file = STUDENT_DB_FILE if role == 'Student' else STAFF_DB_FILE
-    id_col = 'ENROLLMENT NO' if role == 'Student' else 'STAFF ID'
-    
-    if not os.path.exists(db_file): return {}
     db = {}
     try:
-        with open(db_file, mode='r', encoding='utf-8-sig') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                db[str(row[id_col]).strip()] = {
-                    'password': str(row['PASSWORD']).strip(), 
-                    'name': str(row['NAME']).strip(),
-                    'boarding_point': str(row.get('BOARDING POINT', '')).strip(),
-                    'shift': str(row.get('SHIFT', '')).strip(),
-                    'assigned_bus': row.get('assigned_bus', 'Unassigned') 
+        if role == 'Driver':
+            records = drivers_sheet.get_all_records()
+            for row in records:
+                db[str(row['CONTACT NUMBER']).strip()] = {
+                    'name': str(row['DRIVER NAME']).strip(),
+                    'assigned_bus': str(row['BUS NUMBER']).strip()
                 }
+            return db
+
+        # For Students and Staff
+        sheet_to_use = students_sheet if role == 'Student' else staff_sheet
+        id_col = 'ENROLLMENT NO' if role == 'Student' else 'STAFF ID'
+        
+        records = sheet_to_use.get_all_records()
+        for row in records:
+            db[str(row[id_col]).strip()] = {
+                'password': str(row['PASSWORD']).strip(), 
+                'name': str(row['NAME']).strip(),
+                'boarding_point': str(row.get('BOARDING POINT', '')).strip(),
+                'shift': str(row.get('SHIFT', '')).strip(),
+                'assigned_bus': str(row.get('assigned_bus', 'Unassigned')).strip()
+            }
         return db
-    except: return {}
+    except Exception as e:
+        print(f"Error reading DB: {e}")
+        return {}
 
 def get_today_scans(user_id):
-    if not os.path.exists(ATTENDANCE_FILE): return 0
     today_str = datetime.now().strftime("%Y-%m-%d")
     count = 0
     try:
-        with open(ATTENDANCE_FILE, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if row['ID Number'] == str(user_id) and row['Timestamp'].startswith(today_str):
-                    count += 1
+        records = attendance_sheet.get_all_records()
+        for row in records:
+            if str(row['ID Number']) == str(user_id) and str(row['Timestamp']).startswith(today_str):
+                count += 1
     except: pass
     return count
 
@@ -74,7 +69,6 @@ def get_next_scan_type(count):
 def home():
     return redirect(url_for('login'))
 
-# --- MAIN STUDENT/STAFF LOGIN ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -96,7 +90,6 @@ def login():
             return render_template('login.html', error="Invalid ID or Password")
     return render_template('login.html')
 
-# --- NEW: DEDICATED DRIVER LOGIN ---
 @app.route('/driver/login', methods=['GET', 'POST'])
 def driver_login():
     if request.method == 'POST':
@@ -105,7 +98,6 @@ def driver_login():
         
         db = get_users_db('Driver')
         
-        # Validates that the contact number exists AND the name matches
         if contact_number in db and db[contact_number]['name'].lower() == driver_name.lower():
             session['user_id'] = contact_number
             session['user_name'] = db[contact_number]['name']
@@ -140,15 +132,13 @@ def driver_dashboard():
     today_str = datetime.now().strftime("%Y-%m-%d")
     passenger_logs = []
     
-    if os.path.exists(ATTENDANCE_FILE):
-        try:
-            with open(ATTENDANCE_FILE, mode='r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row['Bus ID'] == assigned_bus and row['Timestamp'].startswith(today_str):
-                        passenger_logs.append(row)
-            passenger_logs.reverse() 
-        except: pass
+    try:
+        records = attendance_sheet.get_all_records()
+        for row in records:
+            if str(row['Bus ID']) == assigned_bus and str(row['Timestamp']).startswith(today_str):
+                passenger_logs.append(row)
+        passenger_logs.reverse() 
+    except: pass
 
     return render_template('driver_dashboard.html', 
                            driver_name=session['user_name'],
@@ -174,18 +164,17 @@ def mark_attendance():
         return jsonify({'status': 'error', 'message': f'Access Denied! Assigned to: {assigned_bus_string.replace(";", " or ")}.'})
     
     try:
-        with open(ATTENDANCE_FILE, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                session['user_id'], 
-                session['user_name'], 
-                session['role'],
-                session.get('boarding_point', 'N/A'), 
-                session.get('shift', 'N/A'),          
-                scan_type,
-                bus_id_scanned
-            ])
+        # PUSH DATA DIRECTLY TO GOOGLE SHEETS!
+        attendance_sheet.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+            session['user_id'], 
+            session['user_name'], 
+            session['role'],
+            session.get('boarding_point', 'N/A'), 
+            session.get('shift', 'N/A'),          
+            scan_type,
+            bus_id_scanned
+        ])
             
         return jsonify({
             'status': 'success', 
@@ -194,7 +183,8 @@ def mark_attendance():
             'boarding_point': session.get('boarding_point', 'N/A'),
             'shift': session.get('shift', 'N/A')
         })
-    except:
+    except Exception as e:
+        print(f"Error logging to sheet: {e}")
         return jsonify({'status': 'error', 'message': 'Server error.'})
 
 @app.route('/logout')
@@ -205,7 +195,7 @@ def logout():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if request.form['username'] == 'admin' and request.form['password'] == 'Transport_@admin':
+        if request.form['username'] == 'admin' and request.form['password'] == 'admin123':
             session['is_admin'] = True
             return redirect(url_for('admin_dashboard'))
         else: return render_template('admin_login.html', error="Invalid Credentials")
@@ -227,68 +217,46 @@ def admin_dashboard():
                 reader = csv.DictReader(stream)
                 count = 0
                 
-                # --- DRIVER UPLOAD LOGIC ---
                 if user_type == 'Driver':
-                    db = get_users_db('Driver')
                     for row in reader:
-                        contact = str(row['CONTACT NUMBER']).strip()
-                        db[contact] = {
-                            'name': str(row['DRIVER NAME']).strip(),
-                            'assigned_bus': route_assigned
-                        }
+                        drivers_sheet.append_row([
+                            route_assigned, 
+                            str(row['DRIVER NAME']).strip(), 
+                            str(row['CONTACT NUMBER']).strip()
+                        ])
                         count += 1
-                    with open(DRIVER_DB_FILE, 'w', newline='', encoding='utf-8') as f:
-                        writer = csv.DictWriter(f, fieldnames=['BUS NUMBER', 'DRIVER NAME', 'CONTACT NUMBER'])
-                        writer.writeheader()
-                        for contact, d in db.items():
-                            writer.writerow({'BUS NUMBER': d['assigned_bus'], 'DRIVER NAME': d['name'], 'CONTACT NUMBER': contact})
-                
-                # --- STUDENT/STAFF UPLOAD LOGIC ---
                 else:
-                    db = get_users_db(user_type)
+                    sheet_to_use = students_sheet if user_type == 'Student' else staff_sheet
                     id_col = 'ENROLLMENT NO' if user_type == 'Student' else 'STAFF ID'
-                    db_file = STUDENT_DB_FILE if user_type == 'Student' else STAFF_DB_FILE
                     
                     for row in reader:
-                        user_id = str(row[id_col]).strip()
-                        if user_id in db:
-                            current_routes = db[user_id]['assigned_bus'].split(';')
-                            if route_assigned not in current_routes and len(current_routes) < 2:
-                                db[user_id]['assigned_bus'] += ';' + route_assigned
-                        else:
-                            db[user_id] = {
-                                'password': str(row['PASSWORD']).strip(),
-                                'name': str(row['NAME']).strip(),
-                                'boarding_point': str(row.get('BOARDING POINT', '')).strip(),
-                                'shift': str(row.get('SHIFT', '')).strip(),
-                                'assigned_bus': route_assigned 
-                            }
+                        # Append directly to the Google Sheet
+                        sheet_to_use.append_row([
+                            str(row['NAME']).strip(),
+                            str(row[id_col]).strip(),
+                            str(row['PASSWORD']).strip(),
+                            str(row.get('BOARDING POINT', '')).strip(),
+                            str(row.get('SHIFT', '')).strip(),
+                            route_assigned
+                        ])
                         count += 1
-                    
-                    with open(db_file, 'w', newline='', encoding='utf-8') as f:
-                        writer = csv.DictWriter(f, fieldnames=['NAME', id_col, 'PASSWORD', 'BOARDING POINT', 'SHIFT', 'assigned_bus'])
-                        writer.writeheader()
-                        for uid, d in db.items():
-                            writer.writerow({'NAME': d['name'], id_col: uid, 'PASSWORD': d['password'], 'BOARDING POINT': d['boarding_point'], 'SHIFT': d['shift'], 'assigned_bus': d['assigned_bus']})
                             
-                message = f'Processed {count} {user_type}(s) for {route_assigned}!'
+                message = f'Sent {count} {user_type}(s) to Google Sheets for {route_assigned}!'
 
+    # Pull live attendance for the admin dashboard view
     attendance_records = []
-    if os.path.exists(ATTENDANCE_FILE):
-        try:
-            with open(ATTENDANCE_FILE, mode='r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader: attendance_records.append(row)
-            attendance_records.reverse()
-        except: pass
+    try:
+        attendance_records = attendance_sheet.get_all_records()
+        attendance_records.reverse()
+    except: pass
 
     return render_template('admin_dashboard.html', message=message, attendance=attendance_records)
 
 @app.route('/admin/download')
 def download_logs():
-    if not session.get('is_admin'): return redirect(url_for('admin_login'))
-    if os.path.exists(ATTENDANCE_FILE): return send_file(ATTENDANCE_FILE, as_attachment=True)
-    return "No logs found yet.", 404
+    # Now that it's in Google Sheets, we just redirect the Admin to the live Google Sheet URL!
+    # Replace the ID below with your actual Google Sheet ID from the URL bar
+    return redirect("https://docs.google.com/spreadsheets/") 
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
