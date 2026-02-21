@@ -2,14 +2,17 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 import gspread
 import io
 import csv
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key'
 
+# --- TIMEZONE SETUP ---
+# Forces the server to use Indian Standard Time (UTC +5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
 # --- GOOGLE SHEETS SETUP ---
 try:
-    # This automatically finds the credentials.json file you put in Render's Secret Files!
     gc = gspread.service_account(filename='credentials.json')
     sh = gc.open('Transit Database')
     
@@ -32,7 +35,6 @@ def get_users_db(role):
                 }
             return db
 
-        # For Students and Staff
         sheet_to_use = students_sheet if role == 'Student' else staff_sheet
         id_col = 'ENROLLMENT NO' if role == 'Student' else 'STAFF ID'
         
@@ -51,7 +53,8 @@ def get_users_db(role):
         return {}
 
 def get_today_scans(user_id):
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    # Updated to use IST
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     count = 0
     try:
         records = attendance_sheet.get_all_records()
@@ -129,7 +132,8 @@ def driver_dashboard():
         return redirect(url_for('driver_login'))
     
     assigned_bus = session['assigned_bus']
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    # Updated to use IST
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     passenger_logs = []
     
     try:
@@ -164,9 +168,9 @@ def mark_attendance():
         return jsonify({'status': 'error', 'message': f'Access Denied! Assigned to: {assigned_bus_string.replace(";", " or ")}.'})
     
     try:
-        # PUSH DATA DIRECTLY TO GOOGLE SHEETS!
+        # Updated to use IST for the final sheet push!
         attendance_sheet.append_row([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"), 
             session['user_id'], 
             session['user_name'], 
             session['role'],
@@ -230,7 +234,6 @@ def admin_dashboard():
                     id_col = 'ENROLLMENT NO' if user_type == 'Student' else 'STAFF ID'
                     
                     for row in reader:
-                        # Append directly to the Google Sheet
                         sheet_to_use.append_row([
                             str(row['NAME']).strip(),
                             str(row[id_col]).strip(),
@@ -243,7 +246,6 @@ def admin_dashboard():
                             
                 message = f'Sent {count} {user_type}(s) to Google Sheets for {route_assigned}!'
 
-    # Pull live attendance for the admin dashboard view
     attendance_records = []
     try:
         attendance_records = attendance_sheet.get_all_records()
@@ -254,9 +256,7 @@ def admin_dashboard():
 
 @app.route('/admin/download')
 def download_logs():
-    # Now that it's in Google Sheets, we just redirect the Admin to the live Google Sheet URL!
-    # Replace the ID below with your actual Google Sheet ID from the URL bar
     return redirect("https://docs.google.com/spreadsheets/") 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)																									
