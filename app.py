@@ -195,7 +195,7 @@ def logout():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if request.form['username'] == 'admin' and request.form['password'] == 'admin123':
+        if request.form['username'] == 'admin' and request.form['password'] == 'Transport_@admin':
             session['is_admin'] = True
             return redirect(url_for('admin_dashboard'))
         else: return render_template('admin_login.html', error="Invalid Credentials")
