@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f9; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 8px; width: 100%; max-width: 1100px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+        .upload-section { max-width: 600px; margin: 0 auto 30px auto; background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6;}
+        .upload-btn { padding: 12px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; margin-top: 15px; }
+        .msg { color: #155724; background: #d4edda; padding: 10px; border-radius: 5px; font-weight: bold; margin-bottom: 15px; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #e9ecef; padding: 15px; border-radius: 5px; }
+        select { padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 100%; margin-bottom: 10px;}
+        .download-btn { padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 14px; white-space: nowrap;}
+        .table-wrapper { overflow-x: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th, td { padding: 10px; border-bottom: 1px solid #ddd; }
+        th { background-color: #343a40; color: white; font-weight: bold; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
+        .role-staff { color: #dc3545; font-weight: bold; }
+        .role-student { color: #007bff; font-weight: bold; }
+        .divider { margin: 30px 0; border-top: 2px solid #eee; }
+        .back-link { display: inline-block; margin-top: 20px; color: #6c757d; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <div class="upload-section">
+            <h2>Add Users to a Route</h2>
+            <div style="font-size: 0.9em; color: #666; text-align: left; background: #fff; padding: 10px; border: 1px solid #ddd; margin-bottom: 15px;">
+                <b>Required CSV Formats:</b><br>
+                <i>Student:</i> NAME, ENROLLMENT NO, PASSWORD, BOARDING POINT, SHIFT<br>
+                <i>Staff:</i> NAME, STAFF ID, PASSWORD, BOARDING POINT, SHIFT<br>
+                <i style="color: #28a745;">Driver:</i> DRIVER NAME, CONTACT NUMBER
+            </div>
+            {% if message %} <div class="msg">{{ message }}</div> {% endif %}
+            
+            <form method="POST" enctype="multipart/form-data">
+                <select name="user_type" required>
+                    <option value="" disabled selected>-- Select User Type --</option>
+                    <option value="Student">Upload Student Data</option>
+                    <option value="Staff">Upload Staff Data</option>
+                    <option value="Driver">Assign Driver</option>
+                </select>
+                
+                <select name="route" required>
+                    <option value="" disabled selected>-- Select Route for this File --</option>
+                    <option value="GJ06 BX 8767 - Dabhoi">Bus 1: GJ06 BX 8767 - Dabhoi</option>
+                    <option value="GJ06 BX 8864 - Halol">Bus 2: GJ06 BX 8864 - Halol</option>
+                    <option value="GJ06 BX 8763 - Karjan">Bus 3: GJ06 BX 8763 - Karjan</option>
+                    <option value="GJ06 BX 8519 - Bharuch">Bus 4: GJ06 BX 8519 - Bharuch</option>
+                    <option value="GJ06 BX 8614 - Bharuch">Bus 5: GJ06 BX 8614 - Bharuch</option>
+                    <option value="GJ06 BX 8545 - Nadiad">Bus 6: GJ06 BX 8545 - Nadiad</option>
+                    <option value="GJ06 BX 8964 - Nadiad">Bus 7: GJ06 BX 8964 - Nadiad</option>
+                </select>
+                <input type="file" name="file" accept=".csv" required style="width: 100%;">
+                <button type="submit" class="upload-btn">Upload & Assign Route</button>
+            </form>
+        </div>
+
+        <div class="divider"></div>
+
+        <h2>Live Attendance Logs</h2>
+        
+        <div class="controls">
+            <select id="busFilter" onchange="filterTable()" style="width: 60%; margin-bottom: 0;">
+                <option value="All">All Buses (View Entire Fleet)</option>
+                <option value="GJ06 BX 8767 - Dabhoi">Bus 1: GJ06 BX 8767 - Dabhoi</option>
+                <option value="GJ06 BX 8864 - Halol">Bus 2: GJ06 BX 8864 - Halol</option>
+                <option value="GJ06 BX 8763 - Karjan">Bus 3: GJ06 BX 8763 - Karjan</option>
+                <option value="GJ06 BX 8519 - Bharuch">Bus 4: GJ06 BX 8519 - Bharuch</option>
+                <option value="GJ06 BX 8614 - Bharuch">Bus 5: GJ06 BX 8614 - Bharuch</option>
+                <option value="GJ06 BX 8545 - Nadiad">Bus 6: GJ06 BX 8545 - Nadiad</option>
+                <option value="GJ06 BX 8964 - Nadiad">Bus 7: GJ06 BX 8964 - Nadiad</option>
+            </select>
+            <a href="/admin/download" class="download-btn">📥 Download Full Log</a>
+        </div>
+
+        <div class="table-wrapper">
+            <table id="attendanceTable">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>ID Number</th>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th>Boarding Point</th> <th>Shift</th>          <th>Scan Type</th>
+                        <th>Bus Scanned</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in attendance %}
+                    <tr>
+                        <td>{{ row['Timestamp'] }}</td>
+                        <td>{{ row['ID Number'] }}</td>
+                        <td>{{ row['Name'] }}</td>
+                        <td class="{% if row['Role'] == 'Staff' %}role-staff{% elif row['Role'] == 'Student' %}role-student{% endif %}">
+                            {{ row['Role'] }}
+                        </td>
+                        <td>{{ row['Boarding Point'] }}</td> <td>{{ row['Shift'] }}</td>          <td style="font-weight: bold;">{{ row['Scan Type'] }}</td>
+                        <td>{{ row['Bus ID'] }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" style="text-align: center; color: #666;">No attendance records found yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <a href="/" class="back-link">← Back to Login Screen</a>
+    </div>
+
+    <script>
+        function filterTable() {
+            var filter = document.getElementById("busFilter").value;
+            var table = document.getElementById("attendanceTable");
+            var tr = table.getElementsByTagName("tr");
+
+            for (var i = 1; i < tr.length; i++) {
+                // Shifted to index 7 because "Bus Scanned" is now the 8th column
+                var td = tr[i].getElementsByTagName("td")[7]; 
+                if (td) {
+                    var txtValue = td.textContent || td.innerText;
+                    if (filter === "All" || txtValue === filter) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

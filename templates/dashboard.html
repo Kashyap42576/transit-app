@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://unpkg.com/html5-qrcode"></script> 
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f8f9fa; margin: 0; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        .role-badge { display: inline-block; background: #343a40; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 10px; }
+        .route-badge { background: #e9ecef; color: #0056b3; padding: 10px 15px; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block; margin-bottom: 15px; border: 2px solid #b8daff; width: 90%; }
+        
+        .tracker-box { background: #fff3cd; color: #856404; padding: 12px; border-radius: 8px; border: 1px solid #ffeeba; margin-bottom: 15px; font-weight: bold; font-size: 16px;}
+        .done-box { background: #d4edda; color: #155724; padding: 20px; border-radius: 8px; border: 1px solid #c3e6cb; margin-bottom: 20px; }
+        
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-bottom: 15px; }
+        .logout-btn { background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; margin-top: 20px; cursor: pointer; font-size: 16px; width: 100%; }
+        
+        .success-msg { color: #155724; padding: 15px; margin-top: 10px; border-radius: 5px; display: none; text-align: left; }
+        .success-header { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 10px; border-bottom: 2px solid #c3e6cb; padding-bottom: 10px; }
+        .success-data { font-size: 16px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="card" id="mainCard">
+        <div class="role-badge">{{ role }} Portal</div>
+        <h2 style="margin-top: 5px;">Welcome, {{ name }}!</h2>
+        
+        <div class="route-badge">Assigned Routes:<br> {{ assigned_bus }}</div>
+
+        {% if scans_completed >= 4 %}
+            <div class="done-box">
+                <h3 style="margin-top: 0;">🎉 All Done!</h3>
+                You have completed all 4 scans for today. The scanner is locked until tomorrow. Have a great day!
+            </div>
+        {% else %}
+            <div class="tracker-box">
+                Today's Scans: {{ scans_completed }} / 4<br>
+                <span style="font-size: 0.9em; color: #533f03;">Pending Action: <u style="color: #d39e00;">{{ next_scan }}</u></span>
+            </div>
+            
+            <p>Point camera at your assigned Bus QR Code.</p>
+            <div id="reader"></div>
+        {% endif %}
+
+        <div id="result" class="success-msg"></div>
+        
+        <a href="/logout" style="text-decoration: none;">
+            <button class="logout-btn">Logout</button>
+        </a>
+    </div>
+
+    <script>
+        function onScanSuccess(decodedText, decodedResult) {
+            if(typeof html5QrcodeScanner !== 'undefined') {
+                html5QrcodeScanner.clear(); 
+            }
+            
+            const resultDiv = document.getElementById('result');
+            const cardDiv = document.getElementById('mainCard');
+            
+            resultDiv.innerText = "Processing sequence...";
+            resultDiv.style.display = "block";
+
+            fetch('/mark_attendance', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ qr_content: decodedText })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    resultDiv.innerHTML = `
+                        <div class="success-header">✅ ${data.message}</div>
+                        <div class="success-data">
+                            <b>NAME:</b> ${data.student_name}<br>
+                            <b>BOARDING POINT:</b> ${data.boarding_point}<br>
+                            <b>SHIFT:</b> ${data.shift}
+                        </div>
+                    `;
+                    resultDiv.style.backgroundColor = '#d4edda';
+                    resultDiv.style.color = '#155724';
+                    cardDiv.style.backgroundColor = '#d4edda'; 
+                    
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3500);
+
+                } else {
+                    resultDiv.innerText = data.message;
+                    resultDiv.style.backgroundColor = '#f8d7da';
+                    resultDiv.style.color = '#721c24';
+                    cardDiv.style.backgroundColor = '#f8d7da';
+                }
+            });
+        }
+
+        {% if scans_completed < 4 %}
+            let config = { 
+                fps: 10, 
+                qrbox: {width: 250, height: 250},
+                supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA] 
+            };
+            
+            let html5QrcodeScanner = new Html5QrcodeScanner("reader", config, false);
+            html5QrcodeScanner.render(onScanSuccess);
+        {% endif %}
+    </script>
+</body>
+</html>
