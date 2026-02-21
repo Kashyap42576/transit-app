@@ -1,13 +1,1 @@
-{
-  "type": "service_account",
-  "project_id": "transit-app-488111",
-  "private_key_id": "5d4a30ceb2a0355ba09bc5cc014e11f817d64da7",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDS8F27BjaKb6jP\naT8cSCruYi8x9jTFwgpie3A3kXt7ObaMYYtLM1bq+A9vNoZvo23LfnOcFNuKbDNU\n2ODVP3VjWNtscmraUUs8tAumAQ4TWmoXKBc5UD2A6DEXE/qDpQXTGi0ZJFGLRWSa\nsETd1GoJInqHnfQSzeXkapy7dDbNhsIfVtp1SH/GflpGw9OyNQIKNOcjZ204MCQX\nB3h7DuX400Mzt991EQ/p50GTWMmDqBe4XBlLkELVQrGfRC1hHcAjX8rb7cCayr9i\nhHvE7yUQQRfD2C9UG3HaE60ufVJXgUHsHxs1EwOPSX4aekVeVi21oR50S3PbgJoo\nVtygxV1hAgMBAAECggEAGRqJFSJyqDwMq457d8qw7UjbFAeYlTZ4FOta2goi13Hx\nYziSosL745/c+l/TVQLupKqqaJdk307sNvtOmqJgPpALIRdm1w+YtCM7RajXe38l\npBbd2LDPeQFpIjV6+WLQ1CRH3LehSsFZ7TzwHTRT4D1ttqkaLIi7hNkZSQfWI9Rf\nwrRDsHX+hdEGB8eqJCzBRZkDuFYJEtqf0Nhg0Y+DlIIoEQSwVblpcWG92a/Sxwo1\nkL+hdXxc2ypu8Yhfza11CSBCmKzSiHd/enf7sR8gXKnAWHqwGDdxef+2m/uUxugs\n25rFTzdo6rD8sxGrUOt8tAkAefaEjSeZz4jtABRmfwKBgQD/o5HbSlvq9EVPUaBE\nxKjaf71gZWG8QWOSsoX3TfSx/oaEnXFS/6RufUaY68qz9c7IIDQdBH5uQbw+Hb4o\npLKN7SkB0JVEczRWwtI6RgCgC4VrR5ZiDiGl5xF8dyd+g/5zgnr1hXRVIbGjczPx\n/CuE2Wpa8v1X+6fHSEQ6tEWOnwKBgQDTPKJnu66peQrRMjtXRBqn1To4PEhOx2Fd\nG2+1mI185HcIsdrHydYEvGWacdXJT8gf9CbMCnwl5LPTKygigSHt1uuU15IU82o7\nMsrJFSZ/xhZg+ClMHpZe4bA6ikN4mJzCovYwrphbz2yUwXzlp49jX75rT9d0ZC7J\njJjcBQmT/wKBgQDiaEDW4f2UkrEL9fQm07Hkinvz8vZjn9oLY7dIdy9/sTf8HeDv\nLGC6RpOO/k4xokN4dSUSihdbmTaaIQd4wZ0uG9xUsiJxVEMHkFZWrAcDuBB7GhTz\nVSax43tWK8W7xDVIokg6SO7mMwg8Bdz8tWTprREH6es80DIhSjy7bUupawKBgEzb\nQefmRK2KyeHFmgutTtmD3nP5kwF+z7EVu3ZiNBCd+6VhOM36ZPFCLuGby4I8kf72\nUWtp4TPUW41YpXiwbUzhJsP4D0GqMxuo5ll1ZZWV2Cyd/kCg3GtXSEx0ZAor1NWI\nf3TFAdBdzw7su2m/po8sldbrrOO/U7qnejKLbqm3AoGABv0xsoyilQp9S2Di8F5A\nZhRp/gT9clcCR+yY1x5XpU0owW2+NR7da0+T5l7v2+z5AyiKQ+UhTY0NVlNMk09a\n9Bsg8XTgiL/HKQMb30V8yDRj1Tq967qMCCFTUIAgG9bT9vw3D30k0AZMIsC9QgS/\ntztBQ0rfEjFuXHnyBCLkkQc=\n-----END PRIVATE KEY-----\n",
-  "client_email": "transit-vot@transit-app-488111.iam.gserviceaccount.com",
-  "client_id": "105441077182094155852",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/transit-vot%40transit-app-488111.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-}
+
