@@ -199,10 +199,31 @@ def logout():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if request.form['username'] == 'admin' and request.form['password'] == 'Transport_@admin':
-            session['is_admin'] = True
-            return redirect(url_for('admin_dashboard'))
-        else: return render_template('admin_login.html', error="Invalid Credentials")
+        input_user = request.form['username'].strip()
+        input_pass = request.form['password'].strip()
+        
+        try:
+            admin_records = admins_sheet.get_all_records()
+            authorized = False
+            admin_name = "Admin" 
+            
+            for row in admin_records:
+                # Changed to check the 'NAME' column instead of 'USERNAME'
+                if str(row['NAME']).strip() == input_user and str(row['PASSWORD']).strip() == input_pass:
+                    authorized = True
+                    admin_name = str(row['NAME']).strip() 
+                    break
+            
+            if authorized:
+                session['is_admin'] = True
+                session['admin_name'] = admin_name 
+                return redirect(url_for('admin_dashboard'))
+            else:
+                return render_template('admin_login.html', error="Invalid Name or Password")
+        except Exception as e:
+            print(f"Admin login error: {e}")
+            return render_template('admin_login.html', error="Database connection error")
+            
     return render_template('admin_login.html')
 
 @app.route('/admin/dashboard', methods=['GET', 'POST'])
