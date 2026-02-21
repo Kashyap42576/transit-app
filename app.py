@@ -2,14 +2,16 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 import gspread
 import io
 import csv
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key'
 
+# --- TIMEZONE SETUP ---
+IST = timezone(timedelta(hours=5, minutes=30))
+
 # --- GOOGLE SHEETS SETUP ---
 try:
-    # This automatically finds the credentials.json file you put in Render's Secret Files!
     gc = gspread.service_account(filename='credentials.json')
     sh = gc.open('Transit Database')
     
@@ -17,6 +19,7 @@ try:
     staff_sheet = sh.worksheet("Staff")
     drivers_sheet = sh.worksheet("Drivers")
     attendance_sheet = sh.worksheet("Attendance")
+    admins_sheet = sh.worksheet("Admins") # New Admins Tab
 except Exception as e:
     print(f"CRITICAL ERROR: Could not connect to Google Sheets. {e}")
 
@@ -26,21 +29,20 @@ def get_users_db(role):
         if role == 'Driver':
             records = drivers_sheet.get_all_records()
             for row in records:
-                db[str(row['CONTACT NUMBER']).strip()] = {
-                    'name': str(row['DRIVER NAME']).strip(),
-                    'assigned_bus': str(row['BUS NUMBER']).strip()
+                db[str(row.get('CONTACT NUMBER', '')).strip()] = {
+                    'name': str(row.get('DRIVER NAME', '')).strip(),
+                    'assigned_bus': str(row.get('BUS NUMBER', '')).strip()
                 }
             return db
 
-        # For Students and Staff
         sheet_to_use = students_sheet if role == 'Student' else staff_sheet
         id_col = 'ENROLLMENT NO' if role == 'Student' else 'STAFF ID'
         
         records = sheet_to_use.get_all_records()
         for row in records:
-            db[str(row[id_col]).strip()] = {
-                'password': str(row['PASSWORD']).strip(), 
-                'name': str(row['NAME']).strip(),
+            db[str(row.get(id_col, '')).strip()] = {
+                'password': str(row.get('PASSWORD', '')).strip(), 
+                'name': str(row.get('NAME', '')).strip(),
                 'boarding_point': str(row.get('BOARDING POINT', '')).strip(),
                 'shift': str(row.get('SHIFT', '')).strip(),
                 'assigned_bus': str(row.get('assigned_bus', 'Unassigned')).strip()
@@ -51,12 +53,12 @@ def get_users_db(role):
         return {}
 
 def get_today_scans(user_id):
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     count = 0
     try:
         records = attendance_sheet.get_all_records()
         for row in records:
-            if str(row['ID Number']) == str(user_id) and str(row['Timestamp']).startswith(today_str):
+            if str(row.get('ID Number', '')) == str(user_id) and str(row.get('Timestamp', '')).startswith(today_str):
                 count += 1
     except: pass
     return count
@@ -73,8 +75,8 @@ def home():
 def login():
     if request.method == 'POST':
         role = request.form['role']
-        user_id = request.form.get('user_id').strip()
-        password = request.form['password'].strip()
+        user_id = request.form.get('user_id', '').strip()
+        password = request.form.get('password', '').strip()
         
         db = get_users_db(role)
         
@@ -93,8 +95,8 @@ def login():
 @app.route('/driver/login', methods=['GET', 'POST'])
 def driver_login():
     if request.method == 'POST':
-        driver_name = request.form['driver_name'].strip()
-        contact_number = request.form['contact_number'].strip()
+        driver_name = request.form.get('driver_name', '').strip()
+        contact_number = request.form.get('contact_number', '').strip()
         
         db = get_users_db('Driver')
         
@@ -128,14 +130,14 @@ def driver_dashboard():
     if 'user_id' not in session or session.get('role') != 'Driver':
         return redirect(url_for('driver_login'))
     
-    assigned_bus = session['assigned_bus']
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    assigned_bus = session.get('assigned_bus', '')
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     passenger_logs = []
     
     try:
         records = attendance_sheet.get_all_records()
         for row in records:
-            if str(row['Bus ID']) == assigned_bus and str(row['Timestamp']).startswith(today_str):
+            if str(row.get('Bus ID', '')) == assigned_bus and str(row.get('Timestamp', '')).startswith(today_str):
                 passenger_logs.append(row)
         passenger_logs.reverse() 
     except: pass
@@ -164,9 +166,8 @@ def mark_attendance():
         return jsonify({'status': 'error', 'message': f'Access Denied! Assigned to: {assigned_bus_string.replace(";", " or ")}.'})
     
     try:
-        # PUSH DATA DIRECTLY TO GOOGLE SHEETS!
         attendance_sheet.append_row([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"), 
             session['user_id'], 
             session['user_name'], 
             session['role'],
@@ -195,17 +196,43 @@ def logout():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if request.form['username'] == 'admin' and request.form['password'] == 'Transport_@admin':
-            session['is_admin'] = True
-            return redirect(url_for('admin_dashboard'))
-        else: return render_template('admin_login.html', error="Invalid Credentials")
+        input_user = request.form.get('username', '').strip()
+        input_pass = request.form.get('password', '').strip()
+        
+        try:
+            admin_records = admins_sheet.get_all_records()
+            authorized = False
+            admin_name = "Admin" 
+            
+            for row in admin_records:
+                # Safely checking columns to prevent KeyErrors
+                sheet_name = str(row.get('NAME', '')).strip()
+                sheet_pass = str(row.get('PASSWORD', '')).strip()
+                
+                if sheet_name == input_user and sheet_pass == input_pass:
+                    authorized = True
+                    admin_name = sheet_name 
+                    break
+            
+            if authorized:
+                session['is_admin'] = True
+                session['admin_name'] = admin_name 
+                return redirect(url_for('admin_dashboard'))
+            else:
+                return render_template('admin_login.html', error="Invalid Name or Password")
+        except Exception as e:
+            # THIS WILL PRINT THE EXACT ERROR ON YOUR SCREEN
+            return render_template('admin_login.html', error=f"Error: {str(e)}")
+            
     return render_template('admin_login.html')
 
 @app.route('/admin/dashboard', methods=['GET', 'POST'])
 def admin_dashboard():
     if not session.get('is_admin'): return redirect(url_for('admin_login'))
 
+    current_admin_name = session.get('admin_name', 'Admin')
     message = None
+    
     if request.method == 'POST':
         if 'file' in request.files and 'route' in request.form and 'user_type' in request.form:
             file = request.files['file']
@@ -221,8 +248,8 @@ def admin_dashboard():
                     for row in reader:
                         drivers_sheet.append_row([
                             route_assigned, 
-                            str(row['DRIVER NAME']).strip(), 
-                            str(row['CONTACT NUMBER']).strip()
+                            str(row.get('DRIVER NAME', '')).strip(), 
+                            str(row.get('CONTACT NUMBER', '')).strip()
                         ])
                         count += 1
                 else:
@@ -230,11 +257,10 @@ def admin_dashboard():
                     id_col = 'ENROLLMENT NO' if user_type == 'Student' else 'STAFF ID'
                     
                     for row in reader:
-                        # Append directly to the Google Sheet
                         sheet_to_use.append_row([
-                            str(row['NAME']).strip(),
-                            str(row[id_col]).strip(),
-                            str(row['PASSWORD']).strip(),
+                            str(row.get('NAME', '')).strip(),
+                            str(row.get(id_col, '')).strip(),
+                            str(row.get('PASSWORD', '')).strip(),
                             str(row.get('BOARDING POINT', '')).strip(),
                             str(row.get('SHIFT', '')).strip(),
                             route_assigned
@@ -243,19 +269,16 @@ def admin_dashboard():
                             
                 message = f'Sent {count} {user_type}(s) to Google Sheets for {route_assigned}!'
 
-    # Pull live attendance for the admin dashboard view
     attendance_records = []
     try:
         attendance_records = attendance_sheet.get_all_records()
         attendance_records.reverse()
     except: pass
 
-    return render_template('admin_dashboard.html', message=message, attendance=attendance_records)
+    return render_template('admin_dashboard.html', message=message, attendance=attendance_records, admin_name=current_admin_name)
 
 @app.route('/admin/download')
 def download_logs():
-    # Now that it's in Google Sheets, we just redirect the Admin to the live Google Sheet URL!
-    # Replace the ID below with your actual Google Sheet ID from the URL bar
     return redirect("https://docs.google.com/spreadsheets/") 
 
 if __name__ == '__main__':
