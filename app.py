@@ -8,10 +8,7 @@ app = Flask(__name__)
 app.secret_key = 'super_secret_key'
 
 # --- TIMEZONE SETUP ---
-<<<<<<< HEAD
-=======
 # Forces the server to use Indian Standard Time (UTC +5:30)
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # --- GOOGLE SHEETS SETUP ---
@@ -57,10 +54,8 @@ def get_users_db(role):
         return {}
 
 def get_today_scans(user_id):
-<<<<<<< HEAD
-=======
+
     # Updated to use IST
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     count = 0
     try:
@@ -137,13 +132,10 @@ def dashboard():
 def driver_dashboard():
     if 'user_id' not in session or session.get('role') != 'Driver':
         return redirect(url_for('driver_login'))
-    
-<<<<<<< HEAD
     assigned_bus = session.get('assigned_bus', '')
-=======
     assigned_bus = session['assigned_bus']
     # Updated to use IST
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
+    assigned_bus = session.get('assigned_bus', '')
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     passenger_logs = []
     
@@ -205,40 +197,28 @@ def mark_attendance():
 def logout():
     session.clear()
     return redirect(url_for('login'))
-
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-<<<<<<< HEAD
         input_user = request.form.get('username', '').strip()
         input_pass = request.form.get('password', '').strip()
-=======
         input_user = request.form['username'].strip()
         input_pass = request.form['password'].strip()
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
-        
+        input_user = request.form.get('username', '').strip()
+        input_pass = request.form.get('password', '').strip()
         try:
             admin_records = admins_sheet.get_all_records()
             authorized = False
             admin_name = "Admin" 
-            
             for row in admin_records:
-<<<<<<< HEAD
                 # Safely checking columns to prevent KeyErrors
                 sheet_name = str(row.get('NAME', '')).strip()
                 sheet_pass = str(row.get('PASSWORD', '')).strip()
-                
                 if sheet_name == input_user and sheet_pass == input_pass:
-                    authorized = True
-                    admin_name = sheet_name 
-=======
                 # Changed to check the 'NAME' column instead of 'USERNAME'
-                if str(row['NAME']).strip() == input_user and str(row['PASSWORD']).strip() == input_pass:
+                 if str(row['NAME']).strip() == input_user and str(row['PASSWORD']).strip() == input_pass:
                     authorized = True
                     admin_name = str(row['NAME']).strip() 
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
-                    break
-            
             if authorized:
                 session['is_admin'] = True
                 session['admin_name'] = admin_name 
@@ -246,16 +226,13 @@ def admin_login():
             else:
                 return render_template('admin_login.html', error="Invalid Name or Password")
         except Exception as e:
-<<<<<<< HEAD
             # THIS WILL PRINT THE EXACT ERROR ON YOUR SCREEN
-            return render_template('admin_login.html', error=f"Error: {str(e)}")
-=======
-            print(f"Admin login error: {e}")
-            return render_template('admin_login.html', error="Database connection error")
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
-            
+            return render_template('admin_login.html', error=f"Error: {str(e)}")            
+        print(f"Admin login error: {e}")
+        return render_template('admin_login.html', error="Database connection error")
+            # THIS WILL PRINT THE EXACT ERROR ON YOUR SCREEN
+        return render_template('admin_login.html', error=f"Error: {str(e)}")   
     return render_template('admin_login.html')
-
 @app.route('/admin/dashboard', methods=['GET', 'POST'])
 def admin_dashboard():
     if not session.get('is_admin'): return redirect(url_for('admin_login'))
@@ -310,10 +287,7 @@ def admin_dashboard():
 @app.route('/admin/download')
 def download_logs():
     return redirect("https://docs.google.com/spreadsheets/") 
-
 if __name__ == '__main__':
-<<<<<<< HEAD
     app.run(host='0.0.0.0', port=5000, debug=True)
-=======
     app.run(host='0.0.0.0', port=5000, debug=True)																									
->>>>>>> f1d79533b5865a315a51338ab7e83d2bf1bf42b9
+    app.run(host='0.0.0.0', port=5000, debug=True)
