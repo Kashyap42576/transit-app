@@ -1,0 +1,22 @@
+{
+  "packageId": "com.putransit.system",
+  "host": "putransitsystem.me",
+  "name": "PU Transit System",
+  "launcherName": "PU Transit",
+  "display": "standalone",
+  "themeColor": "#000000",
+  "navigationColor": "#000000",
+  "backgroundColor": "#000000",
+  "startUrl": "/",
+  "iconUrl": "https://putransitsystem.me/static/icon.png",
+  "maskableIconUrl": "https://putransitsystem.me/static/icon.png",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://putransitsystem.me/manifest.json",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  }
+}
