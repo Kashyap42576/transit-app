@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
@@ -22,7 +22,7 @@ def get_ist_time():
 def index():
     return render_template('login.html')
 
-# FIXED: Handles both GET (page load) and POST (form submission)
+# FIXED: Handles GET (page load) and POST (form submit) to prevent 405 errors
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -31,7 +31,6 @@ def login():
         password = request.form.get('password')
         app_device_id = request.form.get('device_id', '').strip() 
 
-        # ADMIN/DRIVER LOGIN
         if user_type == 'Admin':
             admin_sheet = sheet.worksheet("Admins")
             admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
@@ -44,13 +43,13 @@ def login():
             driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
             if driver and str(driver.get("Password")) == password:
                 session.update({
-                    'user_id': user_id, 'role': 'Driver', 
+                    'user_id': user_id, 
+                    'role': 'Driver', 
                     'driver_name': driver.get("Name"),
-                    'assigned_buses': str(driver.get("Assigned_Buses", "")).split(';')
+                    'assigned_bus': str(driver.get("Assigned_Bus")) # AUTOMATIC LOCK
                 })
                 return redirect(url_for('driver_dashboard'))
 
-        # STUDENT/STAFF HARD-LOCK
         elif user_type in ['Student', 'Staff']:
             if not app_device_id or len(app_device_id) < 5:
                 flash("Security Alert: Use the official PU Transit App.")
@@ -75,14 +74,13 @@ def login():
         flash("Invalid Credentials")
     return redirect(url_for('index'))
 
-# UPDATED: Matches your original form-based scanning
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
     if session.get('role') != 'Driver':
         return redirect(url_for('index'))
     
     scanned_id = request.form.get('scanned_id')
-    bus_number = request.form.get('bus_number')
+    bus_number = request.form.get('bus_number') 
     
     person = None
     role = ""
@@ -94,8 +92,7 @@ def mark_attendance():
             break
             
     if person:
-        attendance_sheet = sheet.worksheet("Attendance")
-        attendance_sheet.append_row([
+        sheet.worksheet("Attendance").append_row([
             scanned_id, person.get("Name"), bus_number, get_ist_time(),
             role, person.get("Boarding_Point", "N/A"), "Boarding"
         ])
@@ -105,15 +102,19 @@ def mark_attendance():
         
     return redirect(url_for('driver_dashboard'))
 
+@app.route('/manifest/<bus_number>')
+def manifest(bus_number):
+    if session.get('role') != 'Driver': return redirect(url_for('index'))
+    all_logs = sheet.worksheet("Attendance").get_all_records()
+    today = get_ist_time().split(' ')[0]
+    bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
+    bus_logs.reverse()
+    return render_template('manifest.html', bus_number=bus_number, driver_name=session.get('driver_name'), logs=bus_logs)
+
 @app.route('/driver_dashboard')
 def driver_dashboard():
     if session.get('role') != 'Driver': return redirect(url_for('index'))
-    return render_template('driver_dashboard.html', buses=session.get('assigned_buses'))
-
-@app.route('/dashboard')
-def dashboard():
-    if 'user_id' not in session: return redirect(url_for('index'))
-    return render_template('dashboard.html')
+    return render_template('driver_dashboard.html')
 
 @app.route('/logout')
 def logout():
