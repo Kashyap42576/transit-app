@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #000; color: #e0e0e0; margin: 0; padding: 0; }
-        .top-nav { background-color: #1a1a1a; border-bottom: 3px solid #ffc107; padding: 20px; position: sticky; top: 0; z-index: 100;}
+        .top-nav { background-color: #1a1a1a; border-bottom: 3px solid #ffc107; padding: 20px; position: sticky; top: 0; z-index: 100; }
         .bus-title { font-size: 24px; color: #ffc107; font-weight: bold; margin: 0; }
         .main-content { padding: 20px; }
         .scan-container { background: #121212; border: 1px solid #333; padding: 20px; border-radius: 8px; margin-bottom: 25px; }
@@ -35,10 +35,8 @@
         <div class="scan-container">
             <form action="/mark_attendance" method="POST">
                 <input type="hidden" name="bus_number" value="{{ session['assigned_bus'] }}">
-                
                 <label style="color: #ffc107; font-weight: bold; display: block;">Scan Passenger QR:</label>
                 <input type="text" name="scanned_id" placeholder="Tap here to scan ID" required autofocus>
-                
                 <button type="submit" class="mark-btn">Confirm Attendance</button>
             </form>
         </div>
