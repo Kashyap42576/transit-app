@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
@@ -22,7 +22,7 @@ def get_ist_time():
 def index():
     return render_template('login.html')
 
-# FIXED: Added methods=['GET', 'POST'] to stop "Method Not Allowed" errors
+# FIXED: Handles both GET (page load) and POST (form submission)
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -31,7 +31,7 @@ def login():
         password = request.form.get('password')
         app_device_id = request.form.get('device_id', '').strip() 
 
-        # ADMIN LOGIN
+        # ADMIN/DRIVER LOGIN
         if user_type == 'Admin':
             admin_sheet = sheet.worksheet("Admins")
             admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
@@ -39,7 +39,6 @@ def login():
                 session.update({'user_id': user_id, 'role': 'Admin'})
                 return redirect(url_for('admin_dashboard'))
 
-        # DRIVER LOGIN
         elif user_type == 'Driver':
             driver_sheet = sheet.worksheet("Drivers")
             driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
@@ -51,10 +50,10 @@ def login():
                 })
                 return redirect(url_for('driver_dashboard'))
 
-        # STUDENT/STAFF (HARD-LOCKED)
+        # STUDENT/STAFF HARD-LOCK
         elif user_type in ['Student', 'Staff']:
             if not app_device_id or len(app_device_id) < 5:
-                flash("Security Alert: Browser logins disabled. Use the App.")
+                flash("Security Alert: Use the official PU Transit App.")
                 return redirect(url_for('index'))
 
             target = "Students" if user_type == "Student" else "Staff"
@@ -74,13 +73,14 @@ def login():
                 return redirect(url_for('dashboard'))
 
         flash("Invalid Credentials")
-        return redirect(url_for('index'))
-    
     return redirect(url_for('index'))
 
+# UPDATED: Matches your original form-based scanning
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
-    if session.get('role') != 'Driver': return jsonify({"status": "error"}), 403
+    if session.get('role') != 'Driver':
+        return redirect(url_for('index'))
+    
     scanned_id = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number')
     
@@ -94,26 +94,26 @@ def mark_attendance():
             break
             
     if person:
-        sheet.worksheet("Attendance").append_row([
+        attendance_sheet = sheet.worksheet("Attendance")
+        attendance_sheet.append_row([
             scanned_id, person.get("Name"), bus_number, get_ist_time(),
             role, person.get("Boarding_Point", "N/A"), "Boarding"
         ])
-        return jsonify({"status": "success", "name": person.get("Name")})
-    return jsonify({"status": "error", "message": "User not found"})
-
-@app.route('/manifest/<bus_number>')
-def manifest(bus_number):
-    if session.get('role') != 'Driver': return redirect(url_for('index'))
-    all_logs = sheet.worksheet("Attendance").get_all_records()
-    today = get_ist_time().split(' ')[0]
-    bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
-    bus_logs.reverse()
-    return render_template('manifest.html', bus_number=bus_number, driver_name=session.get('driver_name'), logs=bus_logs)
+        flash(f"Success: {person.get('Name')} marked!")
+    else:
+        flash("Error: User ID not found.")
+        
+    return redirect(url_for('driver_dashboard'))
 
 @app.route('/driver_dashboard')
 def driver_dashboard():
     if session.get('role') != 'Driver': return redirect(url_for('index'))
     return render_template('driver_dashboard.html', buses=session.get('assigned_buses'))
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' not in session: return redirect(url_for('index'))
+    return render_template('dashboard.html')
 
 @app.route('/logout')
 def logout():
