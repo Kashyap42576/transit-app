@@ -22,7 +22,6 @@ def get_ist_time():
 def index():
     return render_template('login.html')
 
-# FIXED: Added ['GET', 'POST'] to stop the 405 Method Not Allowed error
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -39,7 +38,7 @@ def login():
                     'user_id': user_id, 
                     'role': 'Driver', 
                     'driver_name': driver.get("Name"),
-                    'assigned_bus': str(driver.get("Assigned_Bus")) # Ensure header in Sheet matches exactly
+                    'assigned_bus': str(driver.get("Assigned_Bus")) 
                 })
                 return redirect(url_for('driver_dashboard'))
 
@@ -119,6 +118,7 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+# CRITICAL FIX: The app must listen on the port provided by Render
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000)) # Fixed port binding for Render
+    port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
