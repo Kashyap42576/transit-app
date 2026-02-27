@@ -1,293 +1,163 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import gspread
-import io
-import csv
-from datetime import datetime, timezone, timedelta
+from oauth2client.service_account import ServiceAccountCredentials
+import os
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_key'
+app.secret_key = "pu_transit_secure_key_2026_final" 
 
-# --- TIMEZONE SETUP ---
-# Forces the server to use Indian Standard Time (UTC +5:30)
-IST = timezone(timedelta(hours=5, minutes=30))
+# ==========================================
+# 1. DATABASE & TIMEZONE SETUP
+# ==========================================
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open("PU_Transit_Database") 
 
-# --- GOOGLE SHEETS SETUP ---
-try:
-    gc = gspread.service_account(filename='credentials.json')
-    sh = gc.open('Transit Database')
-    
-    students_sheet = sh.worksheet("Students")
-    staff_sheet = sh.worksheet("Staff")
-    drivers_sheet = sh.worksheet("Drivers")
-    attendance_sheet = sh.worksheet("Attendance")
-    admins_sheet = sh.worksheet("Admins") # New Admins Tab
-except Exception as e:
-    print(f"CRITICAL ERROR: Could not connect to Google Sheets. {e}")
+def get_ist_time():
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
 
-def get_users_db(role):
-    db = {}
-    try:
-        if role == 'Driver':
-            records = drivers_sheet.get_all_records()
-            for row in records:
-                db[str(row.get('CONTACT NUMBER', '')).strip()] = {
-                    'name': str(row.get('DRIVER NAME', '')).strip(),
-                    'assigned_bus': str(row.get('BUS NUMBER', '')).strip()
-                }
-            return db
-
-        sheet_to_use = students_sheet if role == 'Student' else staff_sheet
-        id_col = 'ENROLLMENT NO' if role == 'Student' else 'STAFF ID'
-        
-        records = sheet_to_use.get_all_records()
-        for row in records:
-            db[str(row.get(id_col, '')).strip()] = {
-                'password': str(row.get('PASSWORD', '')).strip(), 
-                'name': str(row.get('NAME', '')).strip(),
-                'boarding_point': str(row.get('BOARDING POINT', '')).strip(),
-                'shift': str(row.get('SHIFT', '')).strip(),
-                'assigned_bus': str(row.get('assigned_bus', 'Unassigned')).strip()
-            }
-        return db
-    except Exception as e:
-        print(f"Error reading DB: {e}")
-        return {}
-
-def get_today_scans(user_id):
-
-    # Updated to use IST
-    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-    count = 0
-    try:
-        records = attendance_sheet.get_all_records()
-        for row in records:
-            if str(row.get('ID Number', '')) == str(user_id) and str(row.get('Timestamp', '')).startswith(today_str):
-                count += 1
-    except: pass
-    return count
-
-def get_next_scan_type(count):
-    scan_types = ['Morning IN', 'Morning OUT', 'Afternoon IN', 'Afternoon OUT']
-    return scan_types[count] if count < 4 else "All Scans Completed"
-
-@app.route('/')
-def home():
-    return redirect(url_for('login'))
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        role = request.form['role']
-        user_id = request.form.get('user_id', '').strip()
-        password = request.form.get('password', '').strip()
-        
-        db = get_users_db(role)
-        
-        if user_id in db and str(db[user_id]['password']) == password:
-            session['user_id'] = user_id
-            session['user_name'] = db[user_id]['name']
-            session['role'] = role
-            session['assigned_bus'] = db[user_id]['assigned_bus']
-            session['boarding_point'] = db[user_id]['boarding_point']
-            session['shift'] = db[user_id]['shift'] 
-            return redirect(url_for('dashboard'))
-        else:
-            return render_template('login.html', error="Invalid ID or Password")
+# ==========================================
+# 2. LOGIN LOGIC (STRICT HARDWARE LOCK)
+# ==========================================
+@app.route('/', methods=['GET'])
+def index():
     return render_template('login.html')
 
-@app.route('/driver/login', methods=['GET', 'POST'])
-def driver_login():
-    if request.method == 'POST':
-        driver_name = request.form.get('driver_name', '').strip()
-        contact_number = request.form.get('contact_number', '').strip()
-        
-        db = get_users_db('Driver')
-        
-        if contact_number in db and db[contact_number]['name'].lower() == driver_name.lower():
-            session['user_id'] = contact_number
-            session['user_name'] = db[contact_number]['name']
-            session['role'] = 'Driver'
-            session['assigned_bus'] = db[contact_number]['assigned_bus']
+@app.route('/login', methods=['POST'])
+def login():
+    user_type = request.form.get('user_type') 
+    user_id = request.form.get('user_id')
+    password = request.form.get('password')
+    app_device_id = request.form.get('device_id', '').strip() 
+
+    if user_type == 'Admin':
+        admin_sheet = sheet.worksheet("Admins")
+        admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
+        if admin_user and str(admin_user.get("Password")) == password:
+            session.update({'user_id': user_id, 'role': 'Admin'})
+            return redirect(url_for('admin_dashboard'))
+
+    elif user_type == 'Driver':
+        driver_sheet = sheet.worksheet("Drivers")
+        driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
+        if driver and str(driver.get("Password")) == password:
+            session.update({
+                'user_id': user_id, 
+                'role': 'Driver', 
+                'driver_name': driver.get("Name"),
+                'assigned_buses': str(driver.get("Assigned_Buses", "")).split(';')
+            })
             return redirect(url_for('driver_dashboard'))
-        else:
-            return render_template('driver_login.html', error="Invalid Name or Contact Number")
-    return render_template('driver_login.html')
+
+    elif user_type in ['Student', 'Staff']:
+        # BLOCK PC BROWSERS
+        if not app_device_id or len(app_device_id) < 5:
+            flash("Security Alert: PC logins disabled. Use the PU Transit App.")
+            return redirect(url_for('index'))
+
+        target_sheet = "Students" if user_type == "Student" else "Staff"
+        user_sheet = sheet.worksheet(target_sheet)
+        user = next((item for item in user_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
+
+        if user and str(user.get("Password")) == password:
+            stored_id = str(user.get("Device_ID", "")).strip()
+            if not stored_id or stored_id in ["None", ""]:
+                cell = user_sheet.find(user_id)
+                user_sheet.update_cell(cell.row, 7, app_device_id) 
+            elif stored_id != app_device_id:
+                flash("Security Alert: Device Mismatch.")
+                return redirect(url_for('index'))
+
+            session.update({'user_id': user_id, 'role': user_type})
+            return redirect(url_for('dashboard'))
+
+    flash("Invalid Credentials")
+    return redirect(url_for('index'))
+
+# ==========================================
+# 3. ATTENDANCE & LIVE MANIFEST LOGIC
+# ==========================================
+@app.route('/mark_attendance', methods=['POST'])
+def mark_attendance():
+    if session.get('role') != 'Driver':
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    scanned_id = request.form.get('scanned_id')
+    bus_number = request.form.get('bus_number')
+    
+    person = None
+    role = ""
+    for s_name in ["Students", "Staff"]:
+        ws = sheet.worksheet(s_name)
+        person = next((item for item in ws.get_all_records() if str(item.get("ID")) == scanned_id), None)
+        if person:
+            role = "Student" if s_name == "Students" else "Staff"
+            break
+            
+    if person:
+        attendance_sheet = sheet.worksheet("Attendance")
+        # Appending data for the Manifest View
+        attendance_sheet.append_row([
+            scanned_id, 
+            person.get("Name"), 
+            bus_number, 
+            get_ist_time(),
+            role,
+            person.get("Boarding_Point", "N/A"),
+            "Boarding"
+        ])
+        return jsonify({"status": "success", "name": person.get("Name")})
+    
+    return jsonify({"status": "error", "message": "User not found"})
+
+@app.route('/manifest/<bus_number>')
+def manifest(bus_number):
+    if 'user_id' not in session or session.get('role') != 'Driver':
+        return redirect(url_for('index'))
+
+    attendance_sheet = sheet.worksheet("Attendance")
+    all_records = attendance_sheet.get_all_records()
+    today_date = get_ist_time().split(' ')[0]
+    
+    # Filter logs for the specific bus and today's date
+    bus_logs = [
+        row for row in all_records 
+        if str(row.get('Bus_Number')) == str(bus_number) and today_date in str(row.get('Timestamp'))
+    ]
+    bus_logs.reverse() # Show newest first
+
+    return render_template('manifest.html', 
+                           bus_number=bus_number, 
+                           driver_name=session.get('driver_name'), 
+                           logs=bus_logs)
+
+# ==========================================
+# 4. DASHBOARDS
+# ==========================================
+@app.route('/driver_dashboard')
+def driver_dashboard():
+    if session.get('role') != 'Driver': return redirect(url_for('index'))
+    return render_template('driver_dashboard.html', buses=session.get('assigned_buses'))
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user_id' not in session or session.get('role') == 'Driver':
-        return redirect(url_for('login'))
-    
-    display_buses = session.get('assigned_bus', '').replace(';', ' & ')
-    today_count = get_today_scans(session['user_id'])
-    
-    return render_template('dashboard.html', 
-                           name=session['user_name'],
-                           role=session['role'],
-                           assigned_bus=display_buses,
-                           scans_completed=today_count,
-                           next_scan=get_next_scan_type(today_count))
+    if 'user_id' not in session: return redirect(url_for('index'))
+    return render_template('dashboard.html')
 
-@app.route('/driver_dashboard')
-def driver_dashboard():
-    if 'user_id' not in session or session.get('role') != 'Driver':
-        return redirect(url_for('driver_login'))
-    assigned_bus = session.get('assigned_bus', '')
-    assigned_bus = session['assigned_bus']
-    # Updated to use IST
-    assigned_bus = session.get('assigned_bus', '')
-    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-    passenger_logs = []
-    
-    try:
-        records = attendance_sheet.get_all_records()
-        for row in records:
-            if str(row.get('Bus ID', '')) == assigned_bus and str(row.get('Timestamp', '')).startswith(today_str):
-                passenger_logs.append(row)
-        passenger_logs.reverse() 
-    except: pass
-
-    return render_template('driver_dashboard.html', 
-                           driver_name=session['user_name'],
-                           bus_number=assigned_bus,
-                           logs=passenger_logs)
-
-@app.route('/mark_attendance', methods=['POST'])
-def mark_attendance():
-    if 'user_id' not in session:
-        return jsonify({'status': 'error', 'message': 'Not logged in'})
-
-    data = request.get_json()
-    bus_id_scanned = data.get('qr_content')
-    
-    today_count = get_today_scans(session['user_id'])
-    if today_count >= 4:
-        return jsonify({'status': 'error', 'message': 'Locked: You have completed all 4 scans today!'})
-        
-    scan_type = get_next_scan_type(today_count)
-    assigned_bus_string = session.get('assigned_bus', '')
-    
-    if bus_id_scanned not in assigned_bus_string.split(';'):
-        return jsonify({'status': 'error', 'message': f'Access Denied! Assigned to: {assigned_bus_string.replace(";", " or ")}.'})
-    
-    try:
-        attendance_sheet.append_row([
-            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"), 
-            session['user_id'], 
-            session['user_name'], 
-            session['role'],
-            session.get('boarding_point', 'N/A'), 
-            session.get('shift', 'N/A'),          
-            scan_type,
-            bus_id_scanned
-        ])
-            
-        return jsonify({
-            'status': 'success', 
-            'message': f'{scan_type} marked for {bus_id_scanned}!',
-            'student_name': session['user_name'],
-            'boarding_point': session.get('boarding_point', 'N/A'),
-            'shift': session.get('shift', 'N/A')
-        })
-    except Exception as e:
-        print(f"Error logging to sheet: {e}")
-        return jsonify({'status': 'error', 'message': 'Server error.'})
+@app.route('/admin_dashboard')
+def admin_dashboard():
+    if session.get('role') != 'Admin': return redirect(url_for('index'))
+    return render_template('admin_dashboard.html')
 
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('login'))
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        input_user = request.form.get('username', '').strip()
-        input_pass = request.form.get('password', '').strip()
-        input_user = request.form['username'].strip()
-        input_pass = request.form['password'].strip()
-        input_user = request.form.get('username', '').strip()
-        input_pass = request.form.get('password', '').strip()
-        try:
-            admin_records = admins_sheet.get_all_records()
-            authorized = False
-            admin_name = "Admin" 
-            for row in admin_records:
-                # Safely checking columns to prevent KeyErrors
-                sheet_name = str(row.get('NAME', '')).strip()
-                sheet_pass = str(row.get('PASSWORD', '')).strip()
-                if sheet_name == input_user and sheet_pass == input_pass:
-                # Changed to check the 'NAME' column instead of 'USERNAME'
-                 if str(row['NAME']).strip() == input_user and str(row['PASSWORD']).strip() == input_pass:
-                    authorized = True
-                    admin_name = str(row['NAME']).strip() 
-            if authorized:
-                session['is_admin'] = True
-                session['admin_name'] = admin_name 
-                return redirect(url_for('admin_dashboard'))
-            else:
-                return render_template('admin_login.html', error="Invalid Name or Password")
-        except Exception as e:
-            # THIS WILL PRINT THE EXACT ERROR ON YOUR SCREEN
-            return render_template('admin_login.html', error=f"Error: {str(e)}")            
-        print(f"Admin login error: {e}")
-        return render_template('admin_login.html', error="Database connection error")
-            # THIS WILL PRINT THE EXACT ERROR ON YOUR SCREEN
-        return render_template('admin_login.html', error=f"Error: {str(e)}")   
-    return render_template('admin_login.html')
-@app.route('/admin/dashboard', methods=['GET', 'POST'])
-def admin_dashboard():
-    if not session.get('is_admin'): return redirect(url_for('admin_login'))
+    return redirect(url_for('index'))
 
-    current_admin_name = session.get('admin_name', 'Admin')
-    message = None
-    
-    if request.method == 'POST':
-        if 'file' in request.files and 'route' in request.form and 'user_type' in request.form:
-            file = request.files['file']
-            route_assigned = request.form['route'] 
-            user_type = request.form['user_type']
-            
-            if file and file.filename.endswith('.csv'):
-                stream = io.StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
-                reader = csv.DictReader(stream)
-                count = 0
-                
-                if user_type == 'Driver':
-                    for row in reader:
-                        drivers_sheet.append_row([
-                            route_assigned, 
-                            str(row.get('DRIVER NAME', '')).strip(), 
-                            str(row.get('CONTACT NUMBER', '')).strip()
-                        ])
-                        count += 1
-                else:
-                    sheet_to_use = students_sheet if user_type == 'Student' else staff_sheet
-                    id_col = 'ENROLLMENT NO' if user_type == 'Student' else 'STAFF ID'
-                    
-                    for row in reader:
-                        sheet_to_use.append_row([
-                            str(row.get('NAME', '')).strip(),
-                            str(row.get(id_col, '')).strip(),
-                            str(row.get('PASSWORD', '')).strip(),
-                            str(row.get('BOARDING POINT', '')).strip(),
-                            str(row.get('SHIFT', '')).strip(),
-                            route_assigned
-                        ])
-                        count += 1
-                            
-                message = f'Sent {count} {user_type}(s) to Google Sheets for {route_assigned}!'
-
-    attendance_records = []
-    try:
-        attendance_records = attendance_sheet.get_all_records()
-        attendance_records.reverse()
-    except: pass
-
-    return render_template('admin_dashboard.html', message=message, attendance=attendance_records, admin_name=current_admin_name)
-
-@app.route('/admin/download')
-def download_logs():
-    return redirect("https://docs.google.com/spreadsheets/") 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-    app.run(host='0.0.0.0', port=5000, debug=True)																									
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
