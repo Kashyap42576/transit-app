@@ -8,9 +8,7 @@ import pytz
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
 
-# ==========================================
-# 1. DATABASE & TIMEZONE SETUP
-# ==========================================
+# --- DATABASE SETUP ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
@@ -20,72 +18,69 @@ def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
 
-# ==========================================
-# 2. LOGIN LOGIC (STRICT HARDWARE LOCK)
-# ==========================================
-@app.route('/', methods=['GET'])
+@app.route('/')
 def index():
     return render_template('login.html')
 
-@app.route('/login', methods=['POST'])
+# FIXED: Added methods=['GET', 'POST'] to stop "Method Not Allowed" errors
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    user_type = request.form.get('user_type') 
-    user_id = request.form.get('user_id')
-    password = request.form.get('password')
-    app_device_id = request.form.get('device_id', '').strip() 
+    if request.method == 'POST':
+        user_type = request.form.get('user_type') 
+        user_id = request.form.get('user_id')
+        password = request.form.get('password')
+        app_device_id = request.form.get('device_id', '').strip() 
 
-    if user_type == 'Admin':
-        admin_sheet = sheet.worksheet("Admins")
-        admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
-        if admin_user and str(admin_user.get("Password")) == password:
-            session.update({'user_id': user_id, 'role': 'Admin'})
-            return redirect(url_for('admin_dashboard'))
+        # ADMIN LOGIN
+        if user_type == 'Admin':
+            admin_sheet = sheet.worksheet("Admins")
+            admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
+            if admin_user and str(admin_user.get("Password")) == password:
+                session.update({'user_id': user_id, 'role': 'Admin'})
+                return redirect(url_for('admin_dashboard'))
 
-    elif user_type == 'Driver':
-        driver_sheet = sheet.worksheet("Drivers")
-        driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
-        if driver and str(driver.get("Password")) == password:
-            session.update({
-                'user_id': user_id, 
-                'role': 'Driver', 
-                'driver_name': driver.get("Name"),
-                'assigned_buses': str(driver.get("Assigned_Buses", "")).split(';')
-            })
-            return redirect(url_for('driver_dashboard'))
+        # DRIVER LOGIN
+        elif user_type == 'Driver':
+            driver_sheet = sheet.worksheet("Drivers")
+            driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
+            if driver and str(driver.get("Password")) == password:
+                session.update({
+                    'user_id': user_id, 'role': 'Driver', 
+                    'driver_name': driver.get("Name"),
+                    'assigned_buses': str(driver.get("Assigned_Buses", "")).split(';')
+                })
+                return redirect(url_for('driver_dashboard'))
 
-    elif user_type in ['Student', 'Staff']:
-        # BLOCK PC BROWSERS
-        if not app_device_id or len(app_device_id) < 5:
-            flash("Security Alert: PC logins disabled. Use the PU Transit App.")
-            return redirect(url_for('index'))
-
-        target_sheet = "Students" if user_type == "Student" else "Staff"
-        user_sheet = sheet.worksheet(target_sheet)
-        user = next((item for item in user_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
-
-        if user and str(user.get("Password")) == password:
-            stored_id = str(user.get("Device_ID", "")).strip()
-            if not stored_id or stored_id in ["None", ""]:
-                cell = user_sheet.find(user_id)
-                user_sheet.update_cell(cell.row, 7, app_device_id) 
-            elif stored_id != app_device_id:
-                flash("Security Alert: Device Mismatch.")
+        # STUDENT/STAFF (HARD-LOCKED)
+        elif user_type in ['Student', 'Staff']:
+            if not app_device_id or len(app_device_id) < 5:
+                flash("Security Alert: Browser logins disabled. Use the App.")
                 return redirect(url_for('index'))
 
-            session.update({'user_id': user_id, 'role': user_type})
-            return redirect(url_for('dashboard'))
+            target = "Students" if user_type == "Student" else "Staff"
+            ws = sheet.worksheet(target)
+            user = next((item for item in ws.get_all_records() if str(item.get("ID")) == user_id), None)
 
-    flash("Invalid Credentials")
+            if user and str(user.get("Password")) == password:
+                stored_id = str(user.get("Device_ID", "")).strip()
+                if not stored_id or stored_id in ["None", ""]:
+                    cell = ws.find(user_id)
+                    ws.update_cell(cell.row, 7, app_device_id) 
+                elif stored_id != app_device_id:
+                    flash("Security Alert: Device Mismatch.")
+                    return redirect(url_for('index'))
+
+                session.update({'user_id': user_id, 'role': user_type})
+                return redirect(url_for('dashboard'))
+
+        flash("Invalid Credentials")
+        return redirect(url_for('index'))
+    
     return redirect(url_for('index'))
 
-# ==========================================
-# 3. ATTENDANCE & LIVE MANIFEST LOGIC
-# ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
-    if session.get('role') != 'Driver':
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if session.get('role') != 'Driver': return jsonify({"status": "error"}), 403
     scanned_id = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number')
     
@@ -99,59 +94,26 @@ def mark_attendance():
             break
             
     if person:
-        attendance_sheet = sheet.worksheet("Attendance")
-        # Appending data for the Manifest View
-        attendance_sheet.append_row([
-            scanned_id, 
-            person.get("Name"), 
-            bus_number, 
-            get_ist_time(),
-            role,
-            person.get("Boarding_Point", "N/A"),
-            "Boarding"
+        sheet.worksheet("Attendance").append_row([
+            scanned_id, person.get("Name"), bus_number, get_ist_time(),
+            role, person.get("Boarding_Point", "N/A"), "Boarding"
         ])
         return jsonify({"status": "success", "name": person.get("Name")})
-    
     return jsonify({"status": "error", "message": "User not found"})
 
 @app.route('/manifest/<bus_number>')
 def manifest(bus_number):
-    if 'user_id' not in session or session.get('role') != 'Driver':
-        return redirect(url_for('index'))
+    if session.get('role') != 'Driver': return redirect(url_for('index'))
+    all_logs = sheet.worksheet("Attendance").get_all_records()
+    today = get_ist_time().split(' ')[0]
+    bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
+    bus_logs.reverse()
+    return render_template('manifest.html', bus_number=bus_number, driver_name=session.get('driver_name'), logs=bus_logs)
 
-    attendance_sheet = sheet.worksheet("Attendance")
-    all_records = attendance_sheet.get_all_records()
-    today_date = get_ist_time().split(' ')[0]
-    
-    # Filter logs for the specific bus and today's date
-    bus_logs = [
-        row for row in all_records 
-        if str(row.get('Bus_Number')) == str(bus_number) and today_date in str(row.get('Timestamp'))
-    ]
-    bus_logs.reverse() # Show newest first
-
-    return render_template('manifest.html', 
-                           bus_number=bus_number, 
-                           driver_name=session.get('driver_name'), 
-                           logs=bus_logs)
-
-# ==========================================
-# 4. DASHBOARDS
-# ==========================================
 @app.route('/driver_dashboard')
 def driver_dashboard():
     if session.get('role') != 'Driver': return redirect(url_for('index'))
     return render_template('driver_dashboard.html', buses=session.get('assigned_buses'))
-
-@app.route('/dashboard')
-def dashboard():
-    if 'user_id' not in session: return redirect(url_for('index'))
-    return render_template('dashboard.html')
-
-@app.route('/admin_dashboard')
-def admin_dashboard():
-    if session.get('role') != 'Admin': return redirect(url_for('index'))
-    return render_template('admin_dashboard.html')
 
 @app.route('/logout')
 def logout():
