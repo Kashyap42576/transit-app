@@ -18,43 +18,22 @@ def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
 
-@app.route('/')
-def index():
-    return render_template('login.html')
-
-@app.route('/login', methods=['GET', 'POST'])
+# ==========================================
+# 1. STUDENT & STAFF PORTAL (Main Page)
+# ==========================================
+@app.route('/', methods=['GET', 'POST'])
 def login():
+    error = None
     if request.method == 'POST':
-        user_type = request.form.get('user_type') 
+        role = request.form.get('role') # Reads from your dropdown
         user_id = request.form.get('user_id')
         password = request.form.get('password')
         app_device_id = request.form.get('device_id', '').strip() 
 
-        if user_type == 'Admin':
-            admin_sheet = sheet.worksheet("Admins")
-            admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
-            if admin_user and str(admin_user.get("Password")) == password:
-                session.update({'user_id': user_id, 'role': 'Admin'})
-                return redirect(url_for('admin_dashboard'))
-
-        elif user_type == 'Driver':
-            driver_sheet = sheet.worksheet("Drivers")
-            driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
-            if driver and str(driver.get("Password")) == password:
-                session.update({
-                    'user_id': user_id, 
-                    'role': 'Driver', 
-                    'driver_name': driver.get("Name"),
-                    'assigned_bus': str(driver.get("Assigned_Bus"))
-                })
-                return redirect(url_for('driver_dashboard'))
-
-        elif user_type in ['Student', 'Staff']:
-            if not app_device_id or len(app_device_id) < 5:
-                flash("Security Alert: Browser logins disabled. Use the App.")
-                return redirect(url_for('index'))
-
-            target = "Students" if user_type == "Student" else "Staff"
+        if not app_device_id or len(app_device_id) < 5:
+            error = "Security Alert: Browser logins disabled. Use the PU Transit App."
+        else:
+            target = "Students" if role == "Student" else "Staff"
             ws = sheet.worksheet(target)
             user = next((item for item in ws.get_all_records() if str(item.get("ID")) == user_id), None)
 
@@ -63,26 +42,76 @@ def login():
                 if not stored_id or stored_id in ["None", ""]:
                     cell = ws.find(user_id)
                     ws.update_cell(cell.row, 7, app_device_id) 
+                    session.update({'user_id': user_id, 'role': role})
+                    return redirect(url_for('dashboard'))
                 elif stored_id != app_device_id:
-                    flash("Security Alert: Device Mismatch.")
-                    return redirect(url_for('index'))
+                    error = "Security Alert: Device Mismatch."
+                else:
+                    session.update({'user_id': user_id, 'role': role})
+                    return redirect(url_for('dashboard'))
+            else:
+                error = "Invalid Credentials"
 
-                session.update({'user_id': user_id, 'role': user_type})
-                return redirect(url_for('dashboard'))
+    return render_template('login.html', error=error)
 
-        flash("Invalid Credentials")
-    return redirect(url_for('index'))
+# ==========================================
+# 2. DRIVER PORTAL
+# ==========================================
+@app.route('/driver/login', methods=['GET', 'POST'])
+def driver_login():
+    error = None
+    if request.method == 'POST':
+        user_id = request.form.get('user_id')
+        password = request.form.get('password')
+        
+        driver_sheet = sheet.worksheet("Drivers")
+        driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
+        
+        if driver and str(driver.get("Password")) == password:
+            session.update({
+                'user_id': user_id, 
+                'role': 'Driver', 
+                'driver_name': driver.get("Name"),
+                'assigned_bus': str(driver.get("Assigned_Bus")) # Permanent Bus Lock
+            })
+            return redirect(url_for('driver_dashboard'))
+        else:
+            error = "Invalid Driver Credentials"
+            
+    return render_template('driver_login.html', error=error)
 
+# ==========================================
+# 3. ADMIN PORTAL
+# ==========================================
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    error = None
+    if request.method == 'POST':
+        user_id = request.form.get('user_id')
+        password = request.form.get('password')
+        
+        admin_sheet = sheet.worksheet("Admins")
+        admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name")) == user_id), None)
+        
+        if admin_user and str(admin_user.get("Password")) == password:
+            session.update({'user_id': user_id, 'role': 'Admin'})
+            return redirect(url_for('admin_dashboard'))
+        else:
+            error = "Invalid Admin Credentials"
+            
+    return render_template('admin_login.html', error=error)
+
+# ==========================================
+# 4. ATTENDANCE & DASHBOARDS
+# ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
-    if session.get('role') != 'Driver':
-        return redirect(url_for('index'))
+    if session.get('role') != 'Driver': return redirect(url_for('login'))
     
     scanned_id = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
-    person = None
-    role = ""
+    person, role = None, ""
     for s_name in ["Students", "Staff"]:
         ws = sheet.worksheet(s_name)
         person = next((item for item in ws.get_all_records() if str(item.get("ID")) == scanned_id), None)
@@ -103,7 +132,7 @@ def mark_attendance():
 
 @app.route('/manifest/<bus_number>')
 def manifest(bus_number):
-    if session.get('role') != 'Driver': return redirect(url_for('index'))
+    if session.get('role') != 'Driver': return redirect(url_for('login'))
     all_logs = sheet.worksheet("Attendance").get_all_records()
     today = get_ist_time().split(' ')[0]
     bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
@@ -112,23 +141,23 @@ def manifest(bus_number):
 
 @app.route('/driver_dashboard')
 def driver_dashboard():
-    if session.get('role') != 'Driver': return redirect(url_for('index'))
+    if session.get('role') != 'Driver': return redirect(url_for('login'))
     return render_template('driver_dashboard.html')
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user_id' not in session: return redirect(url_for('index'))
+    if 'user_id' not in session: return redirect(url_for('login'))
     return render_template('dashboard.html')
 
 @app.route('/admin_dashboard')
 def admin_dashboard():
-    if session.get('role') != 'Admin': return redirect(url_for('index'))
+    if session.get('role') != 'Admin': return redirect(url_for('login'))
     return render_template('admin_dashboard.html')
 
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('index'))
+    return redirect(url_for('login'))
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
