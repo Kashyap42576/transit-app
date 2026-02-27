@@ -25,7 +25,7 @@ def get_ist_time():
 def login():
     error = None
     if request.method == 'POST':
-        role = request.form.get('role') # Reads from your dropdown
+        role = request.form.get('role') 
         user_id = request.form.get('user_id')
         password = request.form.get('password')
         app_device_id = request.form.get('device_id', '').strip() 
@@ -72,7 +72,7 @@ def driver_login():
                 'user_id': user_id, 
                 'role': 'Driver', 
                 'driver_name': driver.get("Name"),
-                'assigned_bus': str(driver.get("Assigned_Bus")) # Permanent Bus Lock
+                'assigned_bus': str(driver.get("Assigned_Bus")) 
             })
             return redirect(url_for('driver_dashboard'))
         else:
@@ -106,8 +106,6 @@ def admin_login():
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
-    if session.get('role') != 'Driver': return redirect(url_for('login'))
-    
     scanned_id = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
@@ -128,21 +126,32 @@ def mark_attendance():
     else:
         flash("Error: User ID not found.")
         
-    return redirect(url_for('driver_dashboard'))
-
-@app.route('/manifest/<bus_number>')
-def manifest(bus_number):
-    if session.get('role') != 'Driver': return redirect(url_for('login'))
-    all_logs = sheet.worksheet("Attendance").get_all_records()
-    today = get_ist_time().split(' ')[0]
-    bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
-    bus_logs.reverse()
-    return render_template('manifest.html', bus_number=bus_number, driver_name=session.get('driver_name'), logs=bus_logs)
+    # Redirects back to the student dashboard if they mark themselves, or driver dash if driver does it
+    if session.get('role') == 'Driver':
+        return redirect(url_for('driver_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/driver_dashboard')
 def driver_dashboard():
-    if session.get('role') != 'Driver': return redirect(url_for('login'))
-    return render_template('driver_dashboard.html')
+    if session.get('role') != 'Driver': 
+        return redirect(url_for('driver_login'))
+    
+    assigned_bus = session.get('assigned_bus')
+    
+    try:
+        all_logs = sheet.worksheet("Attendance").get_all_records()
+        today = get_ist_time().split(' ')[0]
+        
+        # Match bus number AND today's date
+        bus_logs = [
+            r for r in all_logs 
+            if str(r.get('Bus_Number', '')) == str(assigned_bus) and today in str(r.get('Timestamp', ''))
+        ]
+        bus_logs.reverse() # Newest scans appear at the top
+    except Exception as e:
+        bus_logs = []
+
+    return render_template('driver_dashboard.html', logs=bus_logs)
 
 @app.route('/dashboard')
 def dashboard():
@@ -151,7 +160,7 @@ def dashboard():
 
 @app.route('/admin_dashboard')
 def admin_dashboard():
-    if session.get('role') != 'Admin': return redirect(url_for('login'))
+    if session.get('role') != 'Admin': return redirect(url_for('admin_login'))
     return render_template('admin_dashboard.html')
 
 @app.route('/logout')
