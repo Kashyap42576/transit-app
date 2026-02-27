@@ -9,7 +9,6 @@ app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
 
 # --- DATABASE SETUP ---
-# Authenticate with Google Sheets using your credentials.json file
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
@@ -23,8 +22,7 @@ def get_ist_time():
 def index():
     return render_template('login.html')
 
-# FIXED: Handles both GET (showing the page) and POST (form submission)
-# This prevents the 'Method Not Allowed' error seen in your logs
+# FIXED: Added ['GET', 'POST'] to stop the 405 Method Not Allowed error
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -33,7 +31,6 @@ def login():
         password = request.form.get('password')
         app_device_id = request.form.get('device_id', '').strip() 
 
-        # --- DRIVER LOGIN LOGIC ---
         if user_type == 'Driver':
             driver_sheet = sheet.worksheet("Drivers")
             driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID")) == user_id), None)
@@ -42,14 +39,13 @@ def login():
                     'user_id': user_id, 
                     'role': 'Driver', 
                     'driver_name': driver.get("Name"),
-                    'assigned_bus': str(driver.get("Assigned_Bus")) # Ensure header matches sheet!
+                    'assigned_bus': str(driver.get("Assigned_Bus")) # Ensure header in Sheet matches exactly
                 })
                 return redirect(url_for('driver_dashboard'))
 
-        # --- STUDENT/STAFF HARD-LOCKED LOGIC ---
         elif user_type in ['Student', 'Staff']:
             if not app_device_id or len(app_device_id) < 5:
-                flash("Security Alert: Browser logins disabled. Use the PU Transit App.")
+                flash("Security Alert: Use the official PU Transit App.")
                 return redirect(url_for('index'))
 
             target = "Students" if user_type == "Student" else "Staff"
@@ -60,7 +56,7 @@ def login():
                 stored_id = str(user.get("Device_ID", "")).strip()
                 if not stored_id or stored_id in ["None", ""]:
                     cell = ws.find(user_id)
-                    ws.update_cell(cell.row, 7, app_device_id) # Set initial lock
+                    ws.update_cell(cell.row, 7, app_device_id) 
                 elif stored_id != app_device_id:
                     flash("Security Alert: Device Mismatch.")
                     return redirect(url_for('index'))
@@ -71,7 +67,6 @@ def login():
         flash("Invalid Credentials")
     return redirect(url_for('index'))
 
-# --- ATTENDANCE MARKING ---
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
     if session.get('role') != 'Driver':
@@ -82,7 +77,6 @@ def mark_attendance():
     
     person = None
     role = ""
-    # Search across both Students and Staff sheets
     for s_name in ["Students", "Staff"]:
         ws = sheet.worksheet(s_name)
         person = next((item for item in ws.get_all_records() if str(item.get("ID")) == scanned_id), None)
@@ -101,14 +95,13 @@ def mark_attendance():
         
     return redirect(url_for('driver_dashboard'))
 
-# --- DASHBOARDS & MANIFEST ---
 @app.route('/manifest/<bus_number>')
 def manifest(bus_number):
     if session.get('role') != 'Driver': return redirect(url_for('index'))
     all_logs = sheet.worksheet("Attendance").get_all_records()
     today = get_ist_time().split(' ')[0]
     bus_logs = [r for r in all_logs if str(r.get('Bus_Number')) == str(bus_number) and today in str(r.get('Timestamp'))]
-    bus_logs.reverse() # Show newest scans at the top
+    bus_logs.reverse()
     return render_template('manifest.html', bus_number=bus_number, driver_name=session.get('driver_name'), logs=bus_logs)
 
 @app.route('/driver_dashboard')
@@ -127,6 +120,5 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    # Fixed Port Binding for Render
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5000)) # Fixed port binding for Render
     app.run(host='0.0.0.0', port=port)
