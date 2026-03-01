@@ -96,6 +96,67 @@ def mark_attendance():
         flash("🔴 Error: Invalid QR Code. Is the student using the updated app?")
         return redirect(url_for('driver_dashboard'))
 
+    # 2. Find the User Safely
+    person, role = None, ""
+    for s_name in ["Students", "Staff"]:
+        try:
+            ws = sheet.worksheet(s_name)
+            # Safe read: Ignores IndexError if Student/Staff sheets are totally blank
+            try:
+                records = ws.get_all_records()
+            except IndexError:
+                records = []
+                
+            person = next((item for item in records if str(item.get("ID", "")).strip() == str(scanned_id)), None)
+            if person:
+                role = "Student" if s_name == "Students" else "Staff"
+                break
+        except Exception:
+            pass 
+            
+    if not person:
+        flash("🔴 Error: User ID not found in Database.")
+        return redirect(url_for('driver_dashboard'))
+
+    # 3. Handle Attendance Logging (BULLETPROOF VERSION)
+    try:
+        attendance_ws = sheet.worksheet("Attendance")
+        
+        # --- THE AUTO-INJECTOR FIX ---
+        try:
+            all_logs = attendance_ws.get_all_records()
+        except IndexError:
+            # If Google Sheets throws the "list index out of range" error, the sheet is empty!
+            # We force-inject the headers into Row 1 automatically so it never crashes again.
+            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift"]
+            attendance_ws.insert_row(headers, 1)
+            all_logs = []
+        # ------------------------------
+
+        today = get_ist_time().split(' ')[0]
+        
+        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
+        scan_count = len(user_scans_today)
+        
+        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
+        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
+
+        shift = person.get("Shift", "N/A")
+
+        # Save to Google Sheets
+        attendance_ws.append_row([
+            scanned_id, person.get("Name"), bus_number, get_ist_time(),
+            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
+        ])
+        
+        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
+        
+    except gspread.exceptions.WorksheetNotFound:
+        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
+    except Exception as e:
+        flash(f"⚙️ Database Error: {str(e)}")
+        
+    return redirect(url_for('driver_dashboard'))
     # 2. Find the User
     person, role = None, ""
     for s_name in ["Students", "Staff"]:
