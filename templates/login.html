@@ -28,7 +28,6 @@
             <input type="text" name="user_id" placeholder="Enrollment No / Staff ID" required>
             <input type="password" name="password" placeholder="Password" required>
             <button type="submit">Login</button>
-            <input type="hidden" name="device_id" id="hidden_device_id">
         </form>
         
         <div class="portal-links">
@@ -36,12 +35,5 @@
             <a href="/admin/login">⚙️ Admin Portal</a>
         </div>
     </div>
-    <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const deviceId = urlParams.get('device_id');
-    if (deviceId) {
-        document.getElementById('hidden_device_id').value = deviceId;
-    }
-    </script>
 </body>
 </html>
