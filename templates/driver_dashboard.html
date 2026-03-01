@@ -1,66 +1,21 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Live Scanner & Manifest</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #000; color: #e0e0e0; margin: 0; padding: 0; }
-        .top-nav { background-color: #1a1a1a; border-bottom: 3px solid #ffc107; padding: 20px; position: sticky; top: 0; z-index: 100; }
-        .bus-title { font-size: 24px; color: #ffc107; font-weight: bold; margin: 0 0 5px 0; }
-        .driver-info { font-size: 14px; color: #888; margin: 0; display: flex; justify-content: space-between; }
-        .main-content { padding: 20px; }
-        
-        /* Scanner Styling */
-        #reader { width: 100%; max-width: 500px; margin: 0 auto 20px auto; background: #121212; border: 2px solid #333; border-radius: 8px; overflow: hidden; }
-        #reader button { background: #28a745; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
-        
-        .passenger-card { background: #121212; border: 1px solid #333; border-left: 5px solid #ffc107; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
-        .p-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
-        .p-name { font-size: 18px; font-weight: bold; color: #fff; }
-        .p-type { font-size: 12px; background: #333; padding: 4px 8px; border-radius: 4px; color: #aaa; text-transform: uppercase; }
-        .empty-state { text-align: center; color: #555; padding: 40px 20px; font-size: 18px; border: 2px dashed #333; border-radius: 10px; margin-top: 20px; }
-        .logout-btn { display: block; background: #dc3545; color: white; text-align: center; text-decoration: none; padding: 15px; font-size: 18px; font-weight: bold; margin-top: 30px; border-radius: 8px; }
-    </style>
-</head>
-<body>
-    <div class="top-nav">
-        <h1 class="bus-title">🚌 {{ session['assigned_bus'] }}</h1>
-        <div class="driver-info">
-            <span>Captain: {{ session['driver_name'] }}</span>
-            <span style="color: #ffc107;">🔴 LIVE</span>
-        </div>
-    </div>
-
-    <div class="main-content">
-        
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                {% for message in messages %}
-                    <div style="background: #28a745; color: white; padding: 10px; text-align: center; border-radius: 5px; margin-bottom: 15px; font-weight: bold;">
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        <div id="reader"></div>
-
-        <form id="scanForm" action="/mark_attendance" method="POST" style="display: none;">
-            <input type="hidden" name="scanned_id" id="scanned_id_input">
-            <input type="hidden" name="bus_number" value="{{ session['assigned_bus'] }}">
-        </form>
-
-        <h3 style="color: #ffc107; margin-top: 30px;">Live Passenger Feed</h3>
+<h3 style="color: #ffc107; margin-top: 30px;">Live Passenger Feed</h3>
         
         {% for row in logs %}
         <div class="passenger-card">
             <div class="p-header">
                 <div class="p-name">{{ row.get('Name', 'Unknown') }}</div>
-                <div class="p-type">{{ row.get('Role', 'Passenger') }}</div>
+                <div style="display: flex; gap: 5px;">
+                    <div class="p-type" style="background: #17a2b8;">{{ row.get('Shift', 'N/A') }}</div>
+                    <div class="p-type">{{ row.get('Role', 'Passenger') }}</div>
+                </div>
             </div>
+            
+            <div style="color: #28a745; font-weight: bold; font-size: 18px; margin: 5px 0;">
+                {{ row.get('Scan_Type', 'Boarding') }}
+            </div>
+            
             <div style="color: #bbb; font-size: 14px;">Boarding: {{ row.get('Boarding_Point', 'N/A') }}</div>
-            <div style="text-align: right; color: #666; font-size: 13px; margin-top: 10px;">Scanned at: {{ row.get('Timestamp', '').split(' ')[1] }}</div>
+            <div style="text-align: right; color: #666; font-size: 13px; margin-top: 5px;">Scanned at: {{ row.get('Timestamp', '').split(' ')[1] }}</div>
         </div>
         {% else %}
         <div class="empty-state">
@@ -68,32 +23,3 @@
             <span style="font-size: 14px; color: #444;">Logs will appear here automatically when you scan them.</span>
         </div>
         {% endfor %}
-
-        <a href="/logout" class="logout-btn">End Shift / Logout</a>
-    </div>
-
-    <script>
-        function onScanSuccess(decodedText, decodedResult) {
-            // Stop scanning to prevent duplicate rapid-fire scans
-            html5QrcodeScanner.clear();
-            
-            // Put the scanned ID into the hidden form
-            document.getElementById('scanned_id_input').value = decodedText;
-            
-            // Submit the form instantly
-            document.getElementById('scanForm').submit();
-        }
-
-        function onScanFailure(error) {
-            // Background errors as it searches for a QR code. We ignore these.
-        }
-
-        let html5QrcodeScanner = new Html5QrcodeScanner(
-            "reader", 
-            { fps: 10, qrbox: {width: 250, height: 250} }, 
-            /* verbose= */ false
-        );
-        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-    </script>
-</body>
-</html>
