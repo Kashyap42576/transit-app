@@ -86,17 +86,66 @@ def mark_attendance():
     encrypted_token = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
-    # 1. Verify the TOTP Token
+    # 1. Verify the Secure TOTP Token
     try:
-        # Max age is 300 seconds (5 minutes). If older, it fails.
         scanned_id = s.loads(encrypted_token, max_age=300)
     except SignatureExpired:
-        flash("Error: QR Code Expired. Student must refresh their app.")
+        flash("🔴 Error: QR Code Expired. Student must refresh their app.")
         return redirect(url_for('driver_dashboard'))
     except Exception:
-        flash("Error: Invalid or Fake QR Code.")
+        flash("🔴 Error: Invalid QR Code. Is the student using the updated app?")
         return redirect(url_for('driver_dashboard'))
 
+    # 2. Find the User
+    person, role = None, ""
+    for s_name in ["Students", "Staff"]:
+        try:
+            ws = sheet.worksheet(s_name)
+            person = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(scanned_id)), None)
+            if person:
+                role = "Student" if s_name == "Students" else "Staff"
+                break
+        except Exception:
+            pass # Silently skip if a sheet is missing or broken
+            
+    if not person:
+        flash("🔴 Error: User ID not found in Database.")
+        return redirect(url_for('driver_dashboard'))
+
+    # 3. Handle Attendance Logging Securely
+    try:
+        attendance_ws = sheet.worksheet("Attendance")
+        
+        # Prevent crash if the Attendance sheet is completely blank
+        if not attendance_ws.row_values(1):
+            flash("⚙️ System Error: 'Attendance' sheet is blank. Add headers to Row 1!")
+            return redirect(url_for('driver_dashboard'))
+
+        all_logs = attendance_ws.get_all_records()
+        today = get_ist_time().split(' ')[0]
+        
+        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
+        scan_count = len(user_scans_today)
+        
+        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
+        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
+
+        shift = person.get("Shift", "N/A")
+
+        # Save to Google Sheets
+        attendance_ws.append_row([
+            scanned_id, person.get("Name"), bus_number, get_ist_time(),
+            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
+        ])
+        
+        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
+        
+    except gspread.exceptions.WorksheetNotFound:
+        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
+    except Exception as e:
+        flash(f"⚙️ Database Error: {str(e)}")
+        
+    return redirect(url_for('driver_dashboard'))
     # 2. Find the User
     person, role = None, ""
     for s_name in ["Students", "Staff"]:
