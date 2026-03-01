@@ -28,29 +28,18 @@ def login():
         role = request.form.get('role') 
         user_id = request.form.get('user_id')
         password = request.form.get('password')
-        app_device_id = request.form.get('device_id', '').strip() 
+        
+        # Determine which sheet to check
+        target = "Students" if role == "Student" else "Staff"
+        ws = sheet.worksheet(target)
+        user = next((item for item in ws.get_all_records() if str(item.get("ID")) == user_id), None)
 
-        if not app_device_id or len(app_device_id) < 5:
-            error = "Security Alert: Browser logins disabled. Use the PU Transit App."
+        # Simple ID and Password check (Device ID logic completely removed)
+        if user and str(user.get("Password")) == password:
+            session.update({'user_id': user_id, 'role': role})
+            return redirect(url_for('dashboard'))
         else:
-            target = "Students" if role == "Student" else "Staff"
-            ws = sheet.worksheet(target)
-            user = next((item for item in ws.get_all_records() if str(item.get("ID")) == user_id), None)
-
-            if user and str(user.get("Password")) == password:
-                stored_id = str(user.get("Device_ID", "")).strip()
-                if not stored_id or stored_id in ["None", ""]:
-                    cell = ws.find(user_id)
-                    ws.update_cell(cell.row, 7, app_device_id) 
-                    session.update({'user_id': user_id, 'role': role})
-                    return redirect(url_for('dashboard'))
-                elif stored_id != app_device_id:
-                    error = "Security Alert: Device Mismatch."
-                else:
-                    session.update({'user_id': user_id, 'role': role})
-                    return redirect(url_for('dashboard'))
-            else:
-                error = "Invalid Credentials"
+            error = "Invalid Credentials"
 
     return render_template('login.html', error=error)
 
@@ -126,7 +115,6 @@ def mark_attendance():
     else:
         flash("Error: User ID not found.")
         
-    # Redirects back to the student dashboard if they mark themselves, or driver dash if driver does it
     if session.get('role') == 'Driver':
         return redirect(url_for('driver_dashboard'))
     return redirect(url_for('dashboard'))
@@ -142,12 +130,11 @@ def driver_dashboard():
         all_logs = sheet.worksheet("Attendance").get_all_records()
         today = get_ist_time().split(' ')[0]
         
-        # Match bus number AND today's date
         bus_logs = [
             r for r in all_logs 
             if str(r.get('Bus_Number', '')) == str(assigned_bus) and today in str(r.get('Timestamp', ''))
         ]
-        bus_logs.reverse() # Newest scans appear at the top
+        bus_logs.reverse() 
     except Exception as e:
         bus_logs = []
 
