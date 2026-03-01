@@ -3,6 +3,7 @@
 <head>
     <title>Student Dashboard - PU Transit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="240">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; text-align: center; }
         .nav { background: #1a1a1a; padding: 20px; color: #ffc107; font-size: 24px; font-weight: bold; border-bottom: 3px solid #ffc107;}
@@ -10,6 +11,7 @@
         .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; }
         .qr-code { margin: 20px 0; border: 5px solid #1a1a1a; padding: 10px; border-radius: 10px; max-width: 100%; height: auto;}
         .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px;}
+        .totp-warning { color: #dc3545; font-size: 14px; font-weight: bold; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -19,9 +21,11 @@
             <h2>Welcome, {{ session['role'] }}!</h2>
             <p style="color: #555; font-size: 18px;">ID: <strong>{{ session['user_id'] }}</strong></p>
             
-            <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this QR Code to the Captain:</p>
+            <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this Dynamic QR to the Captain:</p>
             
-            <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ session['user_id'] }}" alt="QR Code">
+            <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ token }}" alt="Secure QR Code">
+            
+            <div class="totp-warning">⏱️ This QR code expires in 5 minutes to prevent sharing.</div>
             
             <br>
             <a href="/logout" class="logout-btn">Logout</a>
