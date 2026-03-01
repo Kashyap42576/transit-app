@@ -1,15 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Live Manifest</title>
+    <title>Live Scanner & Manifest</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="5">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #000; color: #e0e0e0; margin: 0; padding: 0; }
         .top-nav { background-color: #1a1a1a; border-bottom: 3px solid #ffc107; padding: 20px; position: sticky; top: 0; z-index: 100; }
         .bus-title { font-size: 24px; color: #ffc107; font-weight: bold; margin: 0 0 5px 0; }
         .driver-info { font-size: 14px; color: #888; margin: 0; display: flex; justify-content: space-between; }
         .main-content { padding: 20px; }
+        
+        /* Scanner Styling */
+        #reader { width: 100%; max-width: 500px; margin: 0 auto 20px auto; background: #121212; border: 2px solid #333; border-radius: 8px; overflow: hidden; }
+        #reader button { background: #28a745; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+        
         .passenger-card { background: #121212; border: 1px solid #333; border-left: 5px solid #ffc107; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
         .p-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
         .p-name { font-size: 18px; font-weight: bold; color: #fff; }
@@ -28,7 +33,25 @@
     </div>
 
     <div class="main-content">
-        <h3 style="color: #ffc107;">Live Passenger Feed</h3>
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div style="background: #28a745; color: white; padding: 10px; text-align: center; border-radius: 5px; margin-bottom: 15px; font-weight: bold;">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div id="reader"></div>
+
+        <form id="scanForm" action="/mark_attendance" method="POST" style="display: none;">
+            <input type="hidden" name="scanned_id" id="scanned_id_input">
+            <input type="hidden" name="bus_number" value="{{ session['assigned_bus'] }}">
+        </form>
+
+        <h3 style="color: #ffc107; margin-top: 30px;">Live Passenger Feed</h3>
         
         {% for row in logs %}
         <div class="passenger-card">
@@ -42,11 +65,35 @@
         {% else %}
         <div class="empty-state">
             🚍<br><br>Waiting for passengers...<br>
-            <span style="font-size: 14px; color: #444;">Logs will appear here automatically when students scan in.</span>
+            <span style="font-size: 14px; color: #444;">Logs will appear here automatically when you scan them.</span>
         </div>
         {% endfor %}
 
         <a href="/logout" class="logout-btn">End Shift / Logout</a>
     </div>
+
+    <script>
+        function onScanSuccess(decodedText, decodedResult) {
+            // Stop scanning to prevent duplicate rapid-fire scans
+            html5QrcodeScanner.clear();
+            
+            // Put the scanned ID into the hidden form
+            document.getElementById('scanned_id_input').value = decodedText;
+            
+            // Submit the form instantly
+            document.getElementById('scanForm').submit();
+        }
+
+        function onScanFailure(error) {
+            // Background errors as it searches for a QR code. We ignore these.
+        }
+
+        let html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader", 
+            { fps: 10, qrbox: {width: 250, height: 250} }, 
+            /* verbose= */ false
+        );
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    </script>
 </body>
 </html>
