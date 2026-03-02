@@ -12,6 +12,7 @@
         .qr-code { margin: 20px 0; border: 5px solid #1a1a1a; padding: 10px; border-radius: 10px; max-width: 100%; height: auto;}
         .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px;}
         .totp-warning { color: #dc3545; font-size: 14px; font-weight: bold; margin-top: 10px; }
+        .flash-message { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #c3e6cb; font-weight: bold;}
     </style>
 </head>
 <body>
@@ -21,11 +22,40 @@
             <h2>Welcome, {{ session['role'] }}!</h2>
             <p style="color: #555; font-size: 18px;">ID: <strong>{{ session['user_id'] }}</strong></p>
             
-            <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this Dynamic QR to the Captain:</p>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="flash-message">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
             
-            <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ token }}" alt="Secure QR Code">
-            
-            <div class="totp-warning">⏱️ This QR code expires in 5 minutes to prevent sharing.</div>
+            {% if not photo_url or photo_url == "" or photo_url == "N/A" %}
+                
+                <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeeba;">
+                    <strong>📸 Mandatory Profile Photo</strong><br>
+                    Please upload a clear picture of your face. You cannot access your boarding pass until this is complete.
+                </div>
+                
+                <form action="/upload_photo" method="POST" enctype="multipart/form-data">
+                    <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                    <button type="submit" style="background: #28a745; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 5px; width: 100%; cursor: pointer; font-size: 16px;">
+                        Upload & Unlock QR
+                    </button>
+                </form>
+                
+            {% else %}
+                
+                <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this Dynamic QR to the Captain:</p>
+                <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ token }}" alt="Secure QR Code">
+                <div class="totp-warning">⏱️ This QR code expires in 5 minutes.</div>
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
+                    <img src="{{ photo_url }}" alt="Your Profile Photo" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid #007bff;">
+                    <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Registered Photo ID</p>
+                </div>
+
+            {% endif %}
             
             <br>
             <a href="/logout" class="logout-btn">Logout</a>
