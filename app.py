@@ -99,7 +99,6 @@ def admin_login():
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
     
-    # Fetch user data to check if they have uploaded a photo yet
     target = "Students" if session['role'] == "Student" else "Staff"
     ws = sheet.worksheet(target)
     try:
@@ -107,10 +106,9 @@ def dashboard():
     except Exception:
         user = None
 
-    # Get their photo URL if it exists
     photo_url = user.get("Photo_URL", "") if user else ""
-    
     token = s.dumps(session['user_id'])
+    
     return render_template('dashboard.html', token=token, photo_url=photo_url)
 
 @app.route('/upload_photo', methods=['POST'])
@@ -122,7 +120,7 @@ def upload_photo():
         flash("No file selected.")
         return redirect(url_for('dashboard'))
 
-    # Your ImgBB API Key
+    # ImgBB API Key
     IMGBB_API_KEY = "4882000cc942a1f5d38c1b5636d84a35" 
 
     try:
@@ -246,10 +244,21 @@ def driver_dashboard():
 
     return render_template('driver_dashboard.html', logs=bus_logs)
 
+# ==========================================
+# ADMIN DASHBOARD 
+# ==========================================
 @app.route('/admin_dashboard')
 def admin_dashboard():
     if session.get('role') != 'Admin': return redirect(url_for('admin_login'))
-    return render_template('admin_dashboard.html')
+    
+    try:
+        attendance_ws = sheet.worksheet("Attendance")
+        logs = attendance_ws.get_all_records()
+        logs.reverse()  # Shows newest scans at the top
+    except Exception:
+        logs = []
+
+    return render_template('admin_dashboard.html', logs=logs)
 
 @app.route('/logout')
 def logout():
