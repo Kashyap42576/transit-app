@@ -1,4 +1,5 @@
 Flask
+gunicorn
 gspread
 oauth2client
 pytz
