@@ -101,7 +101,6 @@ def mark_attendance():
     for s_name in ["Students", "Staff"]:
         try:
             ws = sheet.worksheet(s_name)
-            # Safe read: Ignores IndexError if Student/Staff sheets are totally blank
             try:
                 records = ws.get_all_records()
             except IndexError:
@@ -118,6 +117,53 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
+    # --- NEW: STRICT BUS ASSIGNMENT CHECK ---
+    # We check multiple capitalizations just in case your sheet header changes
+    allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
+    
+    # If the driver's bus is NOT in the student's allowed list, reject them instantly!
+    if bus_number not in allowed_buses:
+        flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
+        return redirect(url_for('driver_dashboard'))
+    # ----------------------------------------
+
+    # 3. Handle Attendance Logging (BULLETPROOF VERSION)
+    try:
+        attendance_ws = sheet.worksheet("Attendance")
+        
+        try:
+            all_logs = attendance_ws.get_all_records()
+        except IndexError:
+            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift"]
+            attendance_ws.insert_row(headers, 1)
+            all_logs = []
+
+        today = get_ist_time().split(' ')[0]
+        
+        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
+        scan_count = len(user_scans_today)
+        
+        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
+        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
+
+        # Fetches Shift accurately (Make sure your sheet header is exactly 'Shift')
+        shift = person.get("Shift", "N/A")
+
+        # Save to Google Sheets
+        attendance_ws.append_row([
+            scanned_id, person.get("Name"), bus_number, get_ist_time(),
+            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
+        ])
+        
+        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
+        
+    except gspread.exceptions.WorksheetNotFound:
+        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
+    except Exception as e:
+        flash(f"⚙️ Database Error: {str(e)}")
+        
+    return redirect(url_for('driver_dashboard'))
+    
     # 3. Handle Attendance Logging (BULLETPROOF VERSION)
     try:
         attendance_ws = sheet.worksheet("Attendance")
