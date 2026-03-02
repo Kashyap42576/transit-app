@@ -4,11 +4,13 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 from datetime import datetime
 import pytz
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired # NEW: For TOTP Security
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+import requests 
+import base64   
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
-s = URLSafeTimedSerializer(app.secret_key) # Initializes the TOTP Generator
+s = URLSafeTimedSerializer(app.secret_key)
 
 # --- DATABASE SETUP ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -20,6 +22,9 @@ def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
 
+# ==========================================
+# LOGIN ROUTES
+# ==========================================
 @app.route('/', methods=['GET', 'POST'])
 def login():
     error = None
@@ -30,7 +35,10 @@ def login():
         
         target = "Students" if role == "Student" else "Staff"
         ws = sheet.worksheet(target)
-        user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == user_id), None)
+        try:
+            user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == user_id), None)
+        except Exception:
+            user = None
 
         if user and str(user.get("Password", "")).strip() == password:
             session.update({'user_id': user_id, 'role': role})
@@ -47,8 +55,11 @@ def driver_login():
         password = request.form.get('password', '').strip()
         
         driver_sheet = sheet.worksheet("Drivers")
-        driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID", "")).strip() == user_id), None)
-        
+        try:
+            driver = next((item for item in driver_sheet.get_all_records() if str(item.get("ID", "")).strip() == user_id), None)
+        except Exception:
+            driver = None
+            
         if driver and str(driver.get("Password", "")).strip() == password:
             session.update({
                 'user_id': user_id, 
@@ -69,8 +80,11 @@ def admin_login():
         password = request.form.get('password', '').strip()
         
         admin_sheet = sheet.worksheet("Admins")
-        admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name", "")).strip() == user_id), None)
-        
+        try:
+            admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name", "")).strip() == user_id), None)
+        except Exception:
+            admin_user = None
+            
         if admin_user and str(admin_user.get("Password", "")).strip() == password:
             session.update({'user_id': user_id, 'role': 'Admin'})
             return redirect(url_for('admin_dashboard'))
@@ -79,14 +93,79 @@ def admin_login():
     return render_template('admin_login.html', error=error)
 
 # ==========================================
-# ATTENDANCE LOGIC (TOTP + 4-STEP SCAN)
+# STUDENT DASHBOARD & PHOTO UPLOAD
+# ==========================================
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    # Fetch user data to check if they have uploaded a photo yet
+    target = "Students" if session['role'] == "Student" else "Staff"
+    ws = sheet.worksheet(target)
+    try:
+        user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
+    except Exception:
+        user = None
+
+    # Get their photo URL if it exists
+    photo_url = user.get("Photo_URL", "") if user else ""
+    
+    token = s.dumps(session['user_id'])
+    return render_template('dashboard.html', token=token, photo_url=photo_url)
+
+@app.route('/upload_photo', methods=['POST'])
+def upload_photo():
+    if 'user_id' not in session: return redirect(url_for('login'))
+
+    file = request.files.get('photo')
+    if not file:
+        flash("No file selected.")
+        return redirect(url_for('dashboard'))
+
+    # Your ImgBB API Key
+    IMGBB_API_KEY = "4882000cc942a1f5d38c1b5636d84a35" 
+
+    try:
+        payload = {
+            "key": IMGBB_API_KEY,
+            "image": base64.b64encode(file.read()).decode('utf-8')
+        }
+        res = requests.post("https://api.imgbb.com/1/upload", data=payload)
+        upload_data = res.json()
+
+        if "data" in upload_data:
+            permanent_url = upload_data["data"]["url"]
+
+            target = "Students" if session['role'] == "Student" else "Staff"
+            ws = sheet.worksheet(target)
+
+            cell = ws.find(str(session['user_id']))
+            headers = ws.row_values(1)
+
+            if "Photo_URL" not in headers:
+                col_index = len(headers) + 1
+                ws.update_cell(1, col_index, "Photo_URL")
+            else:
+                col_index = headers.index("Photo_URL") + 1
+
+            ws.update_cell(cell.row, col_index, permanent_url)
+            flash("📸 Photo uploaded successfully! Your QR code is now unlocked.")
+        else:
+            flash("Error uploading photo to cloud. Please try again.")
+
+    except Exception as e:
+        flash(f"Upload failed: {str(e)}")
+
+    return redirect(url_for('dashboard'))
+
+# ==========================================
+# ATTENDANCE LOGIC
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
     encrypted_token = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
-    # 1. Verify the Secure TOTP Token
     try:
         scanned_id = s.loads(encrypted_token, max_age=300)
     except SignatureExpired:
@@ -96,7 +175,6 @@ def mark_attendance():
         flash("🔴 Error: Invalid QR Code. Is the student using the updated app?")
         return redirect(url_for('driver_dashboard'))
 
-    # 2. Find the User Safely
     person, role = None, ""
     for s_name in ["Students", "Staff"]:
         try:
@@ -105,7 +183,6 @@ def mark_attendance():
                 records = ws.get_all_records()
             except IndexError:
                 records = []
-                
             person = next((item for item in records if str(item.get("ID", "")).strip() == str(scanned_id)), None)
             if person:
                 role = "Student" if s_name == "Students" else "Staff"
@@ -117,70 +194,22 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- NEW: STRICT BUS ASSIGNMENT CHECK ---
-    # We check multiple capitalizations just in case your sheet header changes
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
-    
-    # If the driver's bus is NOT in the student's allowed list, reject them instantly!
     if bus_number not in allowed_buses:
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
-    # ----------------------------------------
 
-    # 3. Handle Attendance Logging (BULLETPROOF VERSION)
     try:
         attendance_ws = sheet.worksheet("Attendance")
         
         try:
             all_logs = attendance_ws.get_all_records()
         except IndexError:
-            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift"]
+            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift", "Photo_URL"]
             attendance_ws.insert_row(headers, 1)
             all_logs = []
 
         today = get_ist_time().split(' ')[0]
-        
-        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
-        scan_count = len(user_scans_today)
-        
-        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
-        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
-
-        # Fetches Shift accurately (Make sure your sheet header is exactly 'Shift')
-        shift = person.get("Shift", "N/A")
-
-        # Save to Google Sheets
-        attendance_ws.append_row([
-            scanned_id, person.get("Name"), bus_number, get_ist_time(),
-            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
-        ])
-        
-        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
-        
-    except gspread.exceptions.WorksheetNotFound:
-        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
-    except Exception as e:
-        flash(f"⚙️ Database Error: {str(e)}")
-        
-    return redirect(url_for('driver_dashboard'))
-    
-    # 3. Handle Attendance Logging (BULLETPROOF VERSION)
-    try:
-        attendance_ws = sheet.worksheet("Attendance")
-        
-        # --- THE AUTO-INJECTOR FIX ---
-        try:
-            all_logs = attendance_ws.get_all_records()
-        except IndexError:
-            # If Google Sheets throws the "list index out of range" error, the sheet is empty!
-            # We force-inject the headers into Row 1 automatically so it never crashes again.
-            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift"]
-            attendance_ws.insert_row(headers, 1)
-            all_logs = []
-        # ------------------------------
-
-        today = get_ist_time().split(' ')[0]
-        
         user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
         scan_count = len(user_scans_today)
         
@@ -188,150 +217,18 @@ def mark_attendance():
         current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
 
         shift = person.get("Shift", "N/A")
+        photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
 
-        # Save to Google Sheets
         attendance_ws.append_row([
             scanned_id, person.get("Name"), bus_number, get_ist_time(),
-            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
+            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
         ])
         
         flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
         
-    except gspread.exceptions.WorksheetNotFound:
-        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
     except Exception as e:
         flash(f"⚙️ Database Error: {str(e)}")
         
-    return redirect(url_for('driver_dashboard'))
-
-    
-    # 3. Handle Attendance Logging (BULLETPROOF VERSION)
-    try:
-        attendance_ws = sheet.worksheet("Attendance")
-        
-        # --- THE AUTO-INJECTOR FIX ---
-        try:
-            all_logs = attendance_ws.get_all_records()
-        except IndexError:
-            # If Google Sheets throws the "list index out of range" error, the sheet is empty!
-            # We force-inject the headers into Row 1 automatically so it never crashes again.
-            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift"]
-            attendance_ws.insert_row(headers, 1)
-            all_logs = []
-        # ------------------------------
-
-        today = get_ist_time().split(' ')[0]
-        
-        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
-        scan_count = len(user_scans_today)
-        
-        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
-        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
-
-        shift = person.get("Shift", "N/A")
-
-        # Save to Google Sheets
-        attendance_ws.append_row([
-            scanned_id, person.get("Name"), bus_number, get_ist_time(),
-            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
-        ])
-        
-        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
-        
-    except gspread.exceptions.WorksheetNotFound:
-        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
-    except Exception as e:
-        flash(f"⚙️ Database Error: {str(e)}")
-        
-    return redirect(url_for('driver_dashboard'))
-    # 2. Find the User
-    person, role = None, ""
-    for s_name in ["Students", "Staff"]:
-        try:
-            ws = sheet.worksheet(s_name)
-            person = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(scanned_id)), None)
-            if person:
-                role = "Student" if s_name == "Students" else "Staff"
-                break
-        except Exception:
-            pass # Silently skip if a sheet is missing or broken
-            
-    if not person:
-        flash("🔴 Error: User ID not found in Database.")
-        return redirect(url_for('driver_dashboard'))
-
-    # 3. Handle Attendance Logging Securely
-    try:
-        attendance_ws = sheet.worksheet("Attendance")
-        
-        # Prevent crash if the Attendance sheet is completely blank
-        if not attendance_ws.row_values(1):
-            flash("⚙️ System Error: 'Attendance' sheet is blank. Add headers to Row 1!")
-            return redirect(url_for('driver_dashboard'))
-
-        all_logs = attendance_ws.get_all_records()
-        today = get_ist_time().split(' ')[0]
-        
-        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
-        scan_count = len(user_scans_today)
-        
-        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
-        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
-
-        shift = person.get("Shift", "N/A")
-
-        # Save to Google Sheets
-        attendance_ws.append_row([
-            scanned_id, person.get("Name"), bus_number, get_ist_time(),
-            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
-        ])
-        
-        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
-        
-    except gspread.exceptions.WorksheetNotFound:
-        flash("⚙️ System Error: Could not find the 'Attendance' tab in Google Sheets.")
-    except Exception as e:
-        flash(f"⚙️ Database Error: {str(e)}")
-        
-    return redirect(url_for('driver_dashboard'))
-    # 2. Find the User
-    person, role = None, ""
-    for s_name in ["Students", "Staff"]:
-        ws = sheet.worksheet(s_name)
-        person = next((item for item in ws.get_all_records() if str(item.get("ID")) == scanned_id), None)
-        if person:
-            role = "Student" if s_name == "Students" else "Staff"
-            break
-            
-    if not person:
-        flash("Error: User ID not found.")
-        return redirect(url_for('driver_dashboard'))
-
-    # 3. Determine the 4-Step Scan Type
-    attendance_ws = sheet.worksheet("Attendance")
-    all_logs = attendance_ws.get_all_records()
-    today = get_ist_time().split(' ')[0]
-    
-    # Count how many times this specific user scanned TODAY
-    user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
-    scan_count = len(user_scans_today)
-    
-    scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
-    
-    if scan_count >= 4:
-        current_scan_type = "Extra Scan" # If they scan a 5th time
-    else:
-        current_scan_type = scan_sequence[scan_count]
-
-    # 4. Fetch Shift and Log it
-    shift = person.get("Shift", "N/A")
-
-    attendance_ws.append_row([
-        scanned_id, person.get("Name"), bus_number, get_ist_time(),
-        role, person.get("Boarding_Point", "N/A"), current_scan_type, shift
-    ])
-    
-    flash(f"Success: {person.get('Name')} - {current_scan_type}")
     return redirect(url_for('driver_dashboard'))
 
 @app.route('/driver_dashboard')
@@ -348,15 +245,6 @@ def driver_dashboard():
         bus_logs = []
 
     return render_template('driver_dashboard.html', logs=bus_logs)
-
-@app.route('/dashboard')
-def dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
-    
-    # Generate the encrypted expiring token
-    token = s.dumps(session['user_id'])
-    
-    return render_template('dashboard.html', token=token)
 
 @app.route('/admin_dashboard')
 def admin_dashboard():
