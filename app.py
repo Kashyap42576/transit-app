@@ -7,6 +7,7 @@ import pytz
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 import requests 
 import base64   
+import time  # NEW: Allows Python to pause and wait during heavy traffic
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
@@ -100,11 +101,20 @@ def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
     
     target = "Students" if session['role'] == "Student" else "Staff"
-    ws = sheet.worksheet(target)
-    try:
-        user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
-    except Exception:
-        user = None
+    user = None
+    
+    # --- RETRY LOGIC FOR HIGH TRAFFIC ---
+    for attempt in range(3):
+        try:
+            ws = sheet.worksheet(target)
+            user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
+            break # Success, exit loop
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1.5) # Wait 1.5 seconds and try again
+            else:
+                pass 
+    # ------------------------------------
 
     photo_url = user.get("Photo_URL", "") if user else ""
     token = s.dumps(session['user_id'])
@@ -120,7 +130,7 @@ def upload_photo():
         flash("No file selected.")
         return redirect(url_for('dashboard'))
 
-    # ImgBB API Key
+    # Your ImgBB API Key
     IMGBB_API_KEY = "4882000cc942a1f5d38c1b5636d84a35" 
 
     try:
@@ -157,7 +167,7 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# ATTENDANCE LOGIC
+# ATTENDANCE LOGIC (WITH ANTI-CRASH)
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
@@ -197,35 +207,47 @@ def mark_attendance():
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    try:
-        attendance_ws = sheet.worksheet("Attendance")
-        
+    # --- RETRY LOGIC FOR HIGH TRAFFIC SAVING ---
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            all_logs = attendance_ws.get_all_records()
-        except IndexError:
-            headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift", "Photo_URL"]
-            attendance_ws.insert_row(headers, 1)
-            all_logs = []
+            attendance_ws = sheet.worksheet("Attendance")
+            
+            try:
+                all_logs = attendance_ws.get_all_records()
+            except IndexError:
+                headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift", "Photo_URL"]
+                attendance_ws.insert_row(headers, 1)
+                all_logs = []
 
-        today = get_ist_time().split(' ')[0]
-        user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
-        scan_count = len(user_scans_today)
-        
-        scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
-        current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
+            today = get_ist_time().split(' ')[0]
+            user_scans_today = [log for log in all_logs if str(log.get('ID')) == str(scanned_id) and today in str(log.get('Timestamp'))]
+            scan_count = len(user_scans_today)
+            
+            scan_sequence = ["Morning In", "Morning Out", "Afternoon In", "Afternoon Out"]
+            current_scan_type = "Extra Scan" if scan_count >= 4 else scan_sequence[scan_count]
 
-        shift = person.get("Shift", "N/A")
-        photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
+            shift = person.get("Shift", "N/A")
+            photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
 
-        attendance_ws.append_row([
-            scanned_id, person.get("Name"), bus_number, get_ist_time(),
-            role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
-        ])
-        
-        flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
-        
-    except Exception as e:
-        flash(f"⚙️ Database Error: {str(e)}")
+            attendance_ws.append_row([
+                scanned_id, person.get("Name"), bus_number, get_ist_time(),
+                role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
+            ])
+            
+            flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
+            break # Exit the loop immediately if successful!
+            
+        except Exception as e:
+            # If Google API rate limits us, wait 2 seconds and retry
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            
+            # If it fails 3 times in a row, warn the driver
+            if attempt == max_retries - 1:
+                flash("⚠️ Database busy! Too many students boarding. Please scan again in 5 seconds.")
+    # ---------------------------------------------
         
     return redirect(url_for('driver_dashboard'))
 
@@ -254,7 +276,7 @@ def admin_dashboard():
     try:
         attendance_ws = sheet.worksheet("Attendance")
         logs = attendance_ws.get_all_records()
-        logs.reverse()  # Shows newest scans at the top
+        logs.reverse()  
     except Exception:
         logs = []
 
