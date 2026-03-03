@@ -65,9 +65,12 @@
             <h2>Live Attendance Logs</h2>
             
             <div class="controls">
-                <select style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; width: 250px;">
+                <select id="busFilter" onchange="filterTable()" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; width: 250px;">
                     <option value="All">All Buses (View Entire Fleet)</option>
-                    </select>
+                    {% for bus in unique_buses %}
+                        <option value="{{ bus }}">{{ bus }}</option>
+                    {% endfor %}
+                </select>
                 <button class="btn-download" onclick="window.print()">📥 Download Full Log</button>
             </div>
             
@@ -87,7 +90,7 @@
                     </thead>
                     <tbody>
                         {% for log in logs %}
-                        <tr>
+                        <tr class="log-row" data-bus="{{ log.get('Bus_Number', '') }}">
                             <td style="color: #666; font-size: 13px;">{{ log.get('Timestamp', 'N/A') }}</td>
                             <td><strong>{{ log.get('ID', 'N/A') }}</strong></td>
                             <td>{{ log.get('Name', 'N/A') }}</td>
@@ -111,5 +114,22 @@
 
         <a href="/logout" class="logout-link">← Back to Login Screen</a>
     </div>
+
+    <script>
+        function filterTable() {
+            let selectedBus = document.getElementById("busFilter").value;
+            let rows = document.getElementsByClassName("log-row");
+
+            for (let i = 0; i < rows.length; i++) {
+                let rowBus = rows[i].getAttribute("data-bus");
+                
+                if (selectedBus === "All" || rowBus === selectedBus) {
+                    rows[i].style.display = "";
+                } else {
+                    rows[i].style.display = "none";
+                }
+            }
+        }
+    </script>
 </body>
 </html>
