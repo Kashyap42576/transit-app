@@ -7,7 +7,7 @@ import pytz
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 import requests 
 import base64   
-import time  # NEW: Allows Python to pause and wait during heavy traffic
+import time  
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
@@ -103,18 +103,17 @@ def dashboard():
     target = "Students" if session['role'] == "Student" else "Staff"
     user = None
     
-    # --- RETRY LOGIC FOR HIGH TRAFFIC ---
+    # Retry logic for high traffic
     for attempt in range(3):
         try:
             ws = sheet.worksheet(target)
             user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
-            break # Success, exit loop
+            break 
         except Exception as e:
             if attempt < 2:
-                time.sleep(1.5) # Wait 1.5 seconds and try again
+                time.sleep(1.5) 
             else:
                 pass 
-    # ------------------------------------
 
     photo_url = user.get("Photo_URL", "") if user else ""
     token = s.dumps(session['user_id'])
@@ -130,7 +129,6 @@ def upload_photo():
         flash("No file selected.")
         return redirect(url_for('dashboard'))
 
-    # Your ImgBB API Key
     IMGBB_API_KEY = "4882000cc942a1f5d38c1b5636d84a35" 
 
     try:
@@ -207,7 +205,6 @@ def mark_attendance():
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- RETRY LOGIC FOR HIGH TRAFFIC SAVING ---
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -236,18 +233,15 @@ def mark_attendance():
             ])
             
             flash(f"🟢 Success: {person.get('Name')} - {current_scan_type}")
-            break # Exit the loop immediately if successful!
+            break 
             
         except Exception as e:
-            # If Google API rate limits us, wait 2 seconds and retry
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
             
-            # If it fails 3 times in a row, warn the driver
             if attempt == max_retries - 1:
                 flash("⚠️ Database busy! Too many students boarding. Please scan again in 5 seconds.")
-    # ---------------------------------------------
         
     return redirect(url_for('driver_dashboard'))
 
@@ -277,10 +271,14 @@ def admin_dashboard():
         attendance_ws = sheet.worksheet("Attendance")
         logs = attendance_ws.get_all_records()
         logs.reverse()  
+        
+        # Get unique buses for the dropdown filter
+        unique_buses = sorted(list(set(str(log.get('Bus_Number', '')) for log in logs if log.get('Bus_Number'))))
     except Exception:
         logs = []
+        unique_buses = []
 
-    return render_template('admin_dashboard.html', logs=logs)
+    return render_template('admin_dashboard.html', logs=logs, unique_buses=unique_buses)
 
 @app.route('/logout')
 def logout():
