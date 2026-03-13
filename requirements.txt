@@ -1,7 +1,5 @@
-Flask
-gunicorn
-gspread
-oauth2client
-pytz
-itsdangerous
-requests
+Flask==3.0.2
+gspread==6.0.0
+oauth2client==4.1.3
+pytz==2024.1
+Werkzeug==3.0.1
