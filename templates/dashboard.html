@@ -20,7 +20,7 @@
     <div class="content">
         <div class="card">
             <h2>Welcome, {{ session['user_name'] }}!</h2>
-            <p style="color: #555; font-size: 18px;">Name: <strong>{{ role }}</strong></p>
+            <p style="color: #555; font-size: 18px;">Role: <strong>{{ role }}</strong></p>
             
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
