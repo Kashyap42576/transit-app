@@ -115,6 +115,7 @@ def dashboard():
                 pass 
 
     photo_url = user.get("Photo_URL", "") if user else ""
+    # Generating a unique encrypted token using the current time
     token = s.dumps(session['user_id'])
 
     return render_template('dashboard.html', token=token, photo_url=photo_url)
@@ -163,7 +164,7 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# ATTENDANCE LOGIC (INTEGRATED WITH 2-SCAN LIMIT)
+# ATTENDANCE LOGIC (WITH SINGLE-USE QR & DAILY LIMIT)
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
@@ -173,10 +174,10 @@ def mark_attendance():
     try:
         scanned_id = s.loads(encrypted_token, max_age=300)
     except SignatureExpired:
-        flash("🔴 Error: QR Code Expired. Student must refresh their app.")
+        flash("🔴 Error: QR Code Expired (Past 5 mins). Student must refresh their app.")
         return redirect(url_for('driver_dashboard'))
     except Exception:
-        flash("🔴 Error: Invalid QR Code. Is the student using the updated app?")
+        flash("🔴 Error: Invalid QR Code.")
         return redirect(url_for('driver_dashboard'))
 
     person, role, target_ws_name = None, "", ""
@@ -187,7 +188,7 @@ def mark_attendance():
             person = next((item for item in records if str(item.get("ID", "")).strip() == str(scanned_id)), None)
             if person:
                 role = "Student" if s_name == "Students" else "Staff"
-                target_ws_name = s_name # Save the worksheet name to update later
+                target_ws_name = s_name 
                 break
         except Exception:
             pass 
@@ -196,12 +197,19 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
+    # --- 1. SINGLE-USE QR CODE CHECK ---
+    last_used_token = str(person.get("last_used_token", ""))
+    if encrypted_token == last_used_token:
+        flash(f"🔴 Access Denied: QR Code already used. {person.get('Name')} must refresh their app to generate a new code.")
+        return redirect(url_for('driver_dashboard'))
+
+    # --- 2. BUS ASSIGNMENT CHECK ---
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- THE NEW 2-SCAN LIMIT LOGIC ---
+    # --- 3. 2-SCAN DAILY LIMIT CHECK ---
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -215,17 +223,18 @@ def mark_attendance():
         daily_scan_count = 0
 
     if daily_scan_count >= 2:
-        flash(f"🔴 Access Denied: {person.get('Name')} has reached the daily limit (2 rides). QR Locked until tomorrow.")
+        flash(f"🔴 Access Denied: {person.get('Name')} has reached the daily limit (2 rides). Locked until tomorrow.")
         return redirect(url_for('driver_dashboard'))
 
+    # Approve and update counter
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
-    # --- RETRY LOGIC FOR HIGH TRAFFIC SAVING ---
+    # --- 4. SAVE TO DATABASE ---
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # 1. Update the Attendance Log for Dashboards
+            # Update Attendance Sheet for Admin Dashboard
             attendance_ws = sheet.worksheet("Attendance")
             try:
                 attendance_ws.get_all_records()
@@ -241,11 +250,12 @@ def mark_attendance():
                 role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
             ])
 
-            # 2. Dynamically Update the Student/Staff sheet with the new limit count
+            # Update Student Sheet (Limit Data & Kill the QR Token)
             target_ws = sheet.worksheet(target_ws_name)
             cell = target_ws.find(str(scanned_id))
             headers = target_ws.row_values(1)
 
+            # Find or Create necessary columns
             if "last_scan_date" not in headers:
                 date_col = len(headers) + 1
                 target_ws.update_cell(1, date_col, "last_scan_date")
@@ -253,14 +263,21 @@ def mark_attendance():
                 date_col = headers.index("last_scan_date") + 1
 
             if "daily_scan_count" not in headers:
-                # Put it right next to last_scan_date
                 count_col = len(headers) + 2 if "last_scan_date" not in headers else len(headers) + 1
                 target_ws.update_cell(1, count_col, "daily_scan_count")
             else:
                 count_col = headers.index("daily_scan_count") + 1
 
+            if "last_used_token" not in headers:
+                token_col = len(headers) + 3 if "last_scan_date" not in headers else len(headers) + 1
+                target_ws.update_cell(1, token_col, "last_used_token")
+            else:
+                token_col = headers.index("last_used_token") + 1
+
+            # Execute the cell updates
             target_ws.update_cell(cell.row, date_col, last_scan_date)
             target_ws.update_cell(cell.row, count_col, daily_scan_count)
+            target_ws.update_cell(cell.row, token_col, encrypted_token) # This permanently kills the QR code
 
             flash(f"🟢 Success: {person.get('Name')} - {current_scan_type} Approved")
             break 
