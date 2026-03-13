@@ -19,8 +19,9 @@
     <div class="nav">🚌 PU Transit System</div>
     <div class="content">
         <div class="card">
-            <h2>Welcome, {{ session['user_name'] }}!</h2>
-            <p style="color: #555; font-size: 18px;">Role: <strong>{{ role }}</strong></p>
+            
+            <h2>Welcome, {{ user_name }}!</h2>
+            <p style="color: #555; font-size: 18px;">Role: <strong>{{ session['role'] }}</strong></p>
             
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -48,7 +49,8 @@
                 
                 <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this QR Code to the Captain:</p>
                 <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ token }}" alt="Secure QR Code">
-                <div class="totp-warning">⏱️This QR code expires after a successful scan. You must refresh to generate a new QR Code.</div>
+                
+                <div class="totp-warning">⏱️ This QR code expires after a successful scan. You must refresh to generate a new QR Code.</div>
                 
                 <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
                     <img src="{{ photo_url }}" alt="Your Profile Photo" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid #007bff;">
