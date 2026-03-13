@@ -4,137 +4,143 @@
     <title>Admin Dashboard - PU Transit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 30px; }
-        h2 { text-align: center; margin-top: 0; color: #1a1a1a; margin-bottom: 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; }
+        .header { background: #1a1a1a; padding: 15px 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
+        .header h2 { margin: 0; font-size: 20px; }
+        .logout-btn { color: white; text-decoration: none; font-weight: bold; background: #dc3545; padding: 8px 15px; border-radius: 5px; }
         
-        .controls { display: flex; justify-content: space-between; align-items: center; background: #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .btn-download { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; text-decoration: none; font-size: 15px; }
-        .btn-download:hover { background: #0056b3; }
+        .container { max-width: 1200px; margin: 30px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; margin-bottom: 25px; }
         
-        .table-responsive { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; text-align: left; background: white; border-radius: 8px; overflow: hidden; }
-        th { background-color: #343a40; color: white; padding: 12px 15px; white-space: nowrap; }
-        td { padding: 12px 15px; border-bottom: 1px solid #eee; }
-        tr:hover { background-color: #f8f9fa; }
+        .controls { background: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border: 1px solid #e9ecef; }
+        .filters { display: flex; gap: 15px; }
+        select { padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px; outline: none; min-width: 220px; cursor: pointer; }
         
-        .logout-link { display: block; text-align: center; margin-top: 30px; color: #666; text-decoration: none; font-size: 14px; }
-        .logout-link:hover { color: #333; }
+        .download-btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .download-btn:hover { background: #0056b3; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { background: #343a40; color: white; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        tr:hover { background-color: #f1f1f1; }
+        
+        /* Styling exactly like your screenshot */
+        .id-bold { font-weight: bold; font-size: 15px; }
+        .date-stack { color: #666; font-size: 12px; display: block; }
+        .time-stack { color: #888; font-size: 12px; display: block; }
+        .scan-type { color: #28a745; font-weight: bold; }
+        .shift-badge { background: #17a2b8; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; text-align: center; display: inline-block;}
     </style>
 </head>
 <body>
+
+    <div class="header">
+        <h2>🚌 PU Transit Admin</h2>
+        <a href="/logout" class="logout-btn">Logout</a>
+    </div>
+
     <div class="container">
+        <h1>Live Attendance Logs</h1>
         
-        <div class="card">
-            <h2>Live Attendance Logs</h2>
-            
-            <div class="controls">
-                <select id="busFilter" onchange="filterTable()" style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; width: 300px; font-size: 15px;">
-                    <option value="All">All Buses (View Entire Fleet)</option>
+        <div class="controls">
+            <div class="filters">
+                <select id="busFilter" onchange="filterTable()">
+                    <option value="all">All Buses (View Entire Fleet)</option>
                     {% for bus in unique_buses %}
                         <option value="{{ bus }}">{{ bus }}</option>
                     {% endfor %}
                 </select>
-                
-                <button class="btn-download" onclick="downloadCSV()">📥 Download CSV / Excel</button>
+
+                <select id="scanFilter" onchange="filterTable()">
+                    <option value="all">All Scan Types</option>
+                    {% for scan in unique_scan_types %}
+                        <option value="{{ scan }}">{{ scan }}</option>
+                    {% endfor %}
+                </select>
             </div>
             
-            <div class="table-responsive">
-                <table id="attendanceTable">
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>ID Number</th>
-                            <th>Name</th>
-                            <th>Role</th>
-                            <th>Boarding Point</th>
-                            <th>Shift</th>
-                            <th>Scan Type</th>
-                            <th>Bus Scanned</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for log in logs %}
-                        <tr class="log-row" data-bus="{{ log.get('Bus_Number', '') }}">
-                            <td style="color: #666; font-size: 13px;">{{ log.get('Timestamp', 'N/A') }}</td>
-                            <td><strong>{{ log.get('ID', 'N/A') }}</strong></td>
-                            <td>{{ log.get('Name', 'N/A') }}</td>
-                            <td>{{ log.get('Role', 'N/A') }}</td>
-                            <td>{{ log.get('Boarding_Point', 'N/A') }}</td>
-                            <td><span style="background: #17a2b8; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">{{ log.get('Shift', 'N/A') }}</span></td>
-                            <td><strong style="color: #28a745;">{{ log.get('Scan_Type', 'N/A') }}</strong></td>
-                            <td>{{ log.get('Bus_Number', 'N/A') }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="8" style="padding: 30px; text-align: center; color: #888; font-style: italic;">
-                                No attendance records found yet.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            <button class="download-btn" onclick="downloadCSV()">⬇️ Download CSV / Excel</button>
         </div>
 
-        <a href="/logout" class="logout-link">← Back to Login Screen</a>
+        <table id="attendanceTable">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Boarding Point</th>
+                    <th>Shift</th>
+                    <th>Scan Type</th>
+                    <th>Bus Scanned</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr class="log-row">
+                    <td>
+                        <span class="date-stack">{{ log.Timestamp.split(' ')[0] if log.Timestamp else '' }}</span>
+                        <span class="time-stack">{{ log.Timestamp.split(' ')[1] if log.Timestamp and ' ' in log.Timestamp else '' }}</span>
+                    </td>
+                    <td class="id-bold">{{ log.ID }}</td>
+                    <td>{{ log.Name }}</td>
+                    <td>{{ log.Role }}</td>
+                    <td>{{ log.Boarding_Point }}</td>
+                    <td><span class="shift-badge">{{ log.Shift }}</span></td>
+                    <td class="scan-type scan-col">{{ log.Scan_Type }}</td>
+                    <td class="bus-col">{{ log.Bus_Number }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 
     <script>
-        // 1. FILTER TABLE BY BUS
+        // Dual-Filter Logic
         function filterTable() {
-            let selectedBus = document.getElementById("busFilter").value;
-            let rows = document.getElementsByClassName("log-row");
+            let busFilterValue = document.getElementById("busFilter").value.toLowerCase();
+            let scanFilterValue = document.getElementById("scanFilter").value.toLowerCase();
+            let rows = document.querySelectorAll(".log-row");
 
-            for (let i = 0; i < rows.length; i++) {
-                let rowBus = rows[i].getAttribute("data-bus");
-                
-                if (selectedBus === "All" || rowBus === selectedBus) {
-                    rows[i].style.display = "";
+            rows.forEach(row => {
+                let busText = row.querySelector(".bus-col").innerText.toLowerCase();
+                let scanText = row.querySelector(".scan-col").innerText.toLowerCase();
+
+                let busMatches = (busFilterValue === "all" || busText.includes(busFilterValue));
+                let scanMatches = (scanFilterValue === "all" || scanText === scanFilterValue);
+
+                if (busMatches && scanMatches) {
+                    row.style.display = "";
                 } else {
-                    rows[i].style.display = "none";
+                    row.style.display = "none";
                 }
-            }
+            });
         }
 
-        // 2. EXPORT VISIBLE ROWS TO CSV / EXCEL
+        // CSV Downloader (Only downloads the rows that are currently visible)
         function downloadCSV() {
-            let selectedBus = document.getElementById("busFilter").value;
-            // Create a smart filename based on the bus selected
-            let filename = (selectedBus === "All" ? "All_Fleet" : selectedBus.replace(/\s+/g, '_')) + "_Attendance_Log.csv";
             let csv = [];
+            let rows = document.querySelectorAll("table tr");
             
-            // Get Table Headers
-            let headers = [];
-            let headerNodes = document.querySelectorAll("#attendanceTable thead th");
-            for (let i = 0; i < headerNodes.length; i++) {
-                headers.push('"' + headerNodes[i].innerText.replace(/"/g, '""') + '"');
-            }
-            csv.push(headers.join(","));
-            
-            // Get Table Rows (Only the visible ones!)
-            let rows = document.querySelectorAll("#attendanceTable tbody tr.log-row");
             for (let i = 0; i < rows.length; i++) {
-                if (rows[i].style.display !== "none") {
-                    let rowData = [];
-                    let cols = rows[i].querySelectorAll("td");
-                    for (let j = 0; j < cols.length; j++) {
-                        rowData.push('"' + cols[j].innerText.replace(/"/g, '""') + '"');
-                    }
-                    csv.push(rowData.join(","));
+                let row = [], cols = rows[i].querySelectorAll("td, th");
+                
+                // Skip hidden rows
+                if(rows[i].style.display === "none") continue;
+
+                for (let j = 0; j < cols.length; j++) {
+                    let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, " ").trim();
+                    row.push('"' + data + '"');
                 }
+                csv.push(row.join(","));
             }
-            
-            // Create the downloadable file
-            let csvFile = new Blob([csv.join("\n")], {type: "text/csv"});
-            let downloadLink = document.createElement("a");
-            downloadLink.download = filename;
-            downloadLink.href = window.URL.createObjectURL(csvFile);
-            downloadLink.style.display = "none";
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
+
+            let csvString = csv.join("\n");
+            let blob = new Blob([csvString], { type: "text/csv" });
+            let link = document.createElement("a");
+            link.href = window.URL.createObjectURL(blob);
+            link.download = "PU_Transit_Logs_" + new Date().toISOString().slice(0,10) + ".csv";
+            link.click();
         }
     </script>
 </body>
