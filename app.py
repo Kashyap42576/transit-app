@@ -115,14 +115,9 @@ def dashboard():
                 pass 
 
     photo_url = user.get("Photo_URL", "") if user else ""
-    
-    # Extract the user's name from the database (defaults to 'Student/Staff' if missing)
     user_name = user.get("Name", session['role']) if user else session['role']
-    
-    # Generate the unique encrypted QR token
     token = s.dumps(session['user_id'])
 
-    # Pass everything, including user_name, to your HTML template
     return render_template('dashboard.html', token=token, photo_url=photo_url, user_name=user_name)
 
 @app.route('/upload_photo', methods=['POST'])
@@ -202,19 +197,16 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 1. SINGLE-USE QR CODE CHECK ---
     last_used_token = str(person.get("last_used_token", ""))
     if encrypted_token == last_used_token:
         flash(f"🔴 Access Denied: QR Code already used. {person.get('Name')} must refresh their app to generate a new code.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 2. BUS ASSIGNMENT CHECK ---
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 3. 2-SCAN DAILY LIMIT CHECK ---
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -234,7 +226,6 @@ def mark_attendance():
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
-    # --- 4. SAVE TO DATABASE ---
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -319,11 +310,14 @@ def admin_dashboard():
         logs.reverse()  
         
         unique_buses = sorted(list(set(str(log.get('Bus_Number', '')) for log in logs if log.get('Bus_Number'))))
+        unique_scan_types = sorted(list(set(str(log.get('Scan_Type', '')) for log in logs if log.get('Scan_Type'))))
+        
     except Exception:
         logs = []
         unique_buses = []
+        unique_scan_types = []
 
-    return render_template('admin_dashboard.html', logs=logs, unique_buses=unique_buses)
+    return render_template('admin_dashboard.html', logs=logs, unique_buses=unique_buses, unique_scan_types=unique_scan_types)
 
 @app.route('/logout')
 def logout():
