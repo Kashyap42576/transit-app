@@ -19,8 +19,8 @@
     <div class="nav">🚌 PU Transit System</div>
     <div class="content">
         <div class="card">
-            <h2>Welcome, {{ session['role'] }}!</h2>
-            <p style="color: #555; font-size: 18px;">Name: <strong>{{ user_name }}</strong></p>
+            <h2>Welcome, {{ session['user_name'] }}!</h2>
+            <p style="color: #555; font-size: 18px;">Name: <strong>{{ role }}</strong></p>
             
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
