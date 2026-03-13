@@ -23,27 +23,30 @@ def get_worksheet():
     sheet = client.open(SPREADSHEET_NAME)
     return sheet.worksheet(WORKSHEET_NAME)
 
+# --- 1. ROOT HEALTH CHECK (Fixes the 404 Error) ---
+@app.route('/', methods=['GET'])
+def home():
+    return "PU Transit API is Live and Running smoothly!", 200
+
+# --- 2. THE MAIN SCANNER ENDPOINT ---
 @app.route('/scan', methods=['POST'])
 def process_scan():
     data = request.json
     
-    # In a biometric setup, the ESP32 sends the "Finger_ID" (or QR ID)
-    # We will assume 'student_id' matches the 'ID' column in your sheet.
+    # Extract data sent by the ESP32 scanner
     student_id = str(data.get('student_id')) 
     bus_id = str(data.get('bus_id'))
 
     worksheet = get_worksheet()
     
-    # Fetch all data as a list of dictionaries (Uses row 1 as keys)
+    # Fetch all data as a list of dictionaries
     records = worksheet.get_all_records()
     
-    # Variables to track the student
     student_record = None
     row_index = 2 # Row 1 is headers, so data starts at row 2
     
-    # 1. Search for the student by ID
+    # Find the student by their ID
     for record in records:
-        # Convert sheet ID to string to ensure a safe match
         if str(record.get('ID', '')) == student_id:
             student_record = record
             break
@@ -52,18 +55,18 @@ def process_scan():
     if not student_record:
         return jsonify({"status": "denied", "message": "Unregistered Student"}), 404
 
-    # 2. Check Bus Assignment
+    # Verify Bus Assignment
     assigned_bus = str(student_record.get('assigned_bus', ''))
-    if bus_id not in assigned_bus: # Using 'not in' just in case of slight string mismatches
+    if bus_id not in assigned_bus: 
         return jsonify({"status": "denied", "message": f"Wrong Bus! Assigned to {assigned_bus}"}), 403
 
-    # 3. Time & Date Logic (Indian Standard Time)
+    # Time & Date Logic (Indian Standard Time)
     ist_now = datetime.now(pytz.timezone('Asia/Kolkata'))
     today_str = ist_now.strftime('%Y-%m-%d')
     
     last_scan_date = str(student_record.get('last_scan_date', ''))
     
-    # Handle empty/string counts gracefully
+    # Handle empty counts gracefully
     try:
         daily_scan_count = int(student_record.get('daily_scan_count', 0))
     except ValueError:
@@ -74,23 +77,21 @@ def process_scan():
         last_scan_date = today_str
         daily_scan_count = 0
 
-    # 4. Enforce the 2-Scan Limit
+    # Enforce the 2-Scan Limit
     if daily_scan_count >= 2:
         return jsonify({
             "status": "denied", 
             "message": "Daily Limit Reached. Locked until tomorrow."
         }), 403
 
-    # 5. Approve and Increment
+    # Approve and Increment
     daily_scan_count += 1
     student_name = student_record.get('Name', 'Student')
 
-    # 6. Update the Google Sheet Live
-    # We dynamically find the column numbers so it doesn't break if you rearrange columns
+    # Update the Google Sheet Live
     date_col = worksheet.find('last_scan_date').col
     count_col = worksheet.find('daily_scan_count').col
     
-    # Update the specific cells in the spreadsheet
     worksheet.update_cell(row_index, date_col, last_scan_date)
     worksheet.update_cell(row_index, count_col, daily_scan_count)
 
@@ -100,5 +101,5 @@ def process_scan():
     }), 200
 
 if __name__ == '__main__':
-    # Use host='0.0.0.0' so it can be accessed externally by Render/ESP32
+    # Use host='0.0.0.0' so it can be accessed externally by Render and your ESP32
     app.run(host='0.0.0.0', port=5000)
