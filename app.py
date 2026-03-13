@@ -94,7 +94,7 @@ def admin_login():
     return render_template('admin_login.html', error=error)
 
 # ==========================================
-# STUDENT DASHBOARD & PHOTO UPLOAD
+# STUDENT/STAFF DASHBOARD & PHOTO UPLOAD
 # ==========================================
 @app.route('/dashboard')
 def dashboard():
@@ -115,10 +115,15 @@ def dashboard():
                 pass 
 
     photo_url = user.get("Photo_URL", "") if user else ""
-    # Generating a unique encrypted token using the current time
+    
+    # Extract the user's name from the database (defaults to 'Student/Staff' if missing)
+    user_name = user.get("Name", session['role']) if user else session['role']
+    
+    # Generate the unique encrypted QR token
     token = s.dumps(session['user_id'])
 
-    return render_template('dashboard.html', token=token, photo_url=photo_url)
+    # Pass everything, including user_name, to your HTML template
+    return render_template('dashboard.html', token=token, photo_url=photo_url, user_name=user_name)
 
 @app.route('/upload_photo', methods=['POST'])
 def upload_photo():
@@ -164,7 +169,7 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# ATTENDANCE LOGIC (WITH SINGLE-USE QR & DAILY LIMIT)
+# ATTENDANCE LOGIC (SINGLE-USE QR & DAILY LIMIT)
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
@@ -226,7 +231,6 @@ def mark_attendance():
         flash(f"🔴 Access Denied: {person.get('Name')} has reached the daily limit (2 rides). Locked until tomorrow.")
         return redirect(url_for('driver_dashboard'))
 
-    # Approve and update counter
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
@@ -234,7 +238,6 @@ def mark_attendance():
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Update Attendance Sheet for Admin Dashboard
             attendance_ws = sheet.worksheet("Attendance")
             try:
                 attendance_ws.get_all_records()
@@ -250,12 +253,10 @@ def mark_attendance():
                 role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
             ])
 
-            # Update Student Sheet (Limit Data & Kill the QR Token)
             target_ws = sheet.worksheet(target_ws_name)
             cell = target_ws.find(str(scanned_id))
             headers = target_ws.row_values(1)
 
-            # Find or Create necessary columns
             if "last_scan_date" not in headers:
                 date_col = len(headers) + 1
                 target_ws.update_cell(1, date_col, "last_scan_date")
@@ -274,10 +275,9 @@ def mark_attendance():
             else:
                 token_col = headers.index("last_used_token") + 1
 
-            # Execute the cell updates
             target_ws.update_cell(cell.row, date_col, last_scan_date)
             target_ws.update_cell(cell.row, count_col, daily_scan_count)
-            target_ws.update_cell(cell.row, token_col, encrypted_token) # This permanently kills the QR code
+            target_ws.update_cell(cell.row, token_col, encrypted_token) 
 
             flash(f"🟢 Success: {person.get('Name')} - {current_scan_type} Approved")
             break 
