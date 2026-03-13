@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 from flask_cors import CORS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -7,10 +7,11 @@ import pytz
 
 app = Flask(__name__)
 CORS(app)
+# Secret key is required to handle user login sessions
+app.secret_key = "pu_transit_secure_key_2026" 
 
 # --- GOOGLE SHEETS API SETUP ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-# Make sure your JSON key file is renamed to 'credentials.json' in your folder
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
 
@@ -23,13 +24,18 @@ def get_worksheet():
     sheet = client.open(SPREADSHEET_NAME)
     return sheet.worksheet(WORKSHEET_NAME)
 
+
 # ==========================================
-# 1. FRONTEND UI ROUTES (Restoring your pages)
+# 1. FRONTEND UI & LOGIN ROUTES
 # ==========================================
 
-# Main Student Login Page
-@app.route('/', methods=['GET'])
+# Student Login
+@app.route('/', methods=['GET', 'POST'])
 def home():
+    if request.method == 'POST':
+        # Add your specific password verification logic here if needed
+        # For now, this prevents the 405 error and pushes them to the dashboard
+        return redirect(url_for('student_dashboard'))
     return render_template('login.html')
 
 # Student Dashboard
@@ -38,20 +44,25 @@ def student_dashboard():
     return render_template('dashboard.html')
 
 # Driver Login
-@app.route('/driver', methods=['GET'])
+@app.route('/driver', methods=['GET', 'POST'])
 def driver_login():
+    if request.method == 'POST':
+        return redirect(url_for('driver_dashboard'))
     return render_template('driver_login.html')
 
-# Driver Dashboard (YOUR QR SCANNER UI)
+# Driver Dashboard (This is where your camera UI lives)
 @app.route('/driver_dashboard', methods=['GET'])
 def driver_dashboard():
     return render_template('driver_dashboard.html')
 
-# Admin Routes
-@app.route('/admin', methods=['GET'])
+# Admin Login
+@app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
+    if request.method == 'POST':
+        return redirect(url_for('admin_dashboard'))
     return render_template('admin_login.html')
 
+# Admin Dashboard
 @app.route('/admin_dashboard', methods=['GET'])
 def admin_dashboard():
     return render_template('admin_dashboard.html')
@@ -64,7 +75,7 @@ def admin_dashboard():
 def process_scan():
     data = request.json
     
-    # Extract data sent by the QR scanner in driver_dashboard.html
+    # Extract data sent by the QR scanner from driver_dashboard.html
     student_id = str(data.get('student_id')) 
     bus_id = str(data.get('bus_id'))
 
@@ -74,6 +85,7 @@ def process_scan():
     student_record = None
     row_index = 2 
     
+    # Find the student by their ID
     for record in records:
         if str(record.get('ID', '')) == student_id:
             student_record = record
@@ -83,10 +95,12 @@ def process_scan():
     if not student_record:
         return jsonify({"status": "denied", "message": "Unregistered Student QR"}), 404
 
+    # Verify Bus Assignment
     assigned_bus = str(student_record.get('assigned_bus', ''))
     if bus_id not in assigned_bus: 
         return jsonify({"status": "denied", "message": f"Wrong Bus! Assigned to {assigned_bus}"}), 403
 
+    # Indian Standard Time setup
     ist_now = datetime.now(pytz.timezone('Asia/Kolkata'))
     today_str = ist_now.strftime('%Y-%m-%d')
     
@@ -97,19 +111,23 @@ def process_scan():
     except ValueError:
         daily_scan_count = 0
 
+    # Reset counter if it's a new day
     if last_scan_date != today_str:
         last_scan_date = today_str
         daily_scan_count = 0
 
+    # Enforce 2-scan limit
     if daily_scan_count >= 2:
         return jsonify({
             "status": "denied", 
             "message": "Daily Limit Reached. QR Locked until tomorrow."
         }), 403
 
+    # Approve and update
     daily_scan_count += 1
     student_name = student_record.get('Name', 'Student')
 
+    # Find columns dynamically and update Google Sheet
     date_col = worksheet.find('last_scan_date').col
     count_col = worksheet.find('daily_scan_count').col
     
@@ -120,7 +138,6 @@ def process_scan():
         "status": "success", 
         "message": f"Welcome {student_name}. Ride {daily_scan_count}/2 Approved."
     }), 200
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
