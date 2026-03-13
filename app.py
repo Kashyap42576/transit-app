@@ -1,39 +1,39 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import pytz
 
 app = Flask(__name__)
+# Enable CORS so the Driver Portal (frontend) can talk to this backend
+CORS(app)
 
 # --- GOOGLE SHEETS API SETUP ---
-# Define the scope and authenticate using your Service Account JSON
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
 
-# Open the specific Google Sheet and the "Students" tab
 SPREADSHEET_NAME = "PU_Transit_Database"
 WORKSHEET_NAME = "Students"
 
 def get_worksheet():
-    # Re-authorize if the token expired
     if creds.access_token_expired:
         client.login()
     sheet = client.open(SPREADSHEET_NAME)
     return sheet.worksheet(WORKSHEET_NAME)
 
-# --- 1. ROOT HEALTH CHECK (Fixes the 404 Error) ---
+# --- 1. ROOT HEALTH CHECK ---
 @app.route('/', methods=['GET'])
 def home():
-    return "PU Transit API is Live and Running smoothly!", 200
+    return "PU Transit QR API is Live and Running smoothly!", 200
 
-# --- 2. THE MAIN SCANNER ENDPOINT ---
+# --- 2. THE MAIN QR SCANNER ENDPOINT ---
 @app.route('/scan', methods=['POST'])
 def process_scan():
     data = request.json
     
-    # Extract data sent by the ESP32 scanner
+    # Extract data sent by the Driver's QR scanner portal
     student_id = str(data.get('student_id')) 
     bus_id = str(data.get('bus_id'))
 
@@ -43,9 +43,9 @@ def process_scan():
     records = worksheet.get_all_records()
     
     student_record = None
-    row_index = 2 # Row 1 is headers, so data starts at row 2
+    row_index = 2 # Row 1 is headers, data starts at row 2
     
-    # Find the student by their ID
+    # Find the student by their ID from the QR code
     for record in records:
         if str(record.get('ID', '')) == student_id:
             student_record = record
@@ -53,7 +53,7 @@ def process_scan():
         row_index += 1
 
     if not student_record:
-        return jsonify({"status": "denied", "message": "Unregistered Student"}), 404
+        return jsonify({"status": "denied", "message": "Unregistered Student QR"}), 404
 
     # Verify Bus Assignment
     assigned_bus = str(student_record.get('assigned_bus', ''))
@@ -81,7 +81,7 @@ def process_scan():
     if daily_scan_count >= 2:
         return jsonify({
             "status": "denied", 
-            "message": "Daily Limit Reached. Locked until tomorrow."
+            "message": "Daily Limit Reached. QR Locked until tomorrow."
         }), 403
 
     # Approve and Increment
@@ -101,5 +101,4 @@ def process_scan():
     }), 200
 
 if __name__ == '__main__':
-    # Use host='0.0.0.0' so it can be accessed externally by Render and your ESP32
     app.run(host='0.0.0.0', port=5000)
