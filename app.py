@@ -164,17 +164,21 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# ATTENDANCE LOGIC (SINGLE-USE QR & DAILY LIMIT)
+# ATTENDANCE LOGIC (DYNAMIC BOARDING POINT LOCK)
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
     encrypted_token = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
+    
+    # NEW: Grab the current stop and the lock signal from the driver's UI
+    current_stop = request.form.get('current_stop', '').strip().upper()
+    lock_stop = request.form.get('lock_stop') # Will equal 'on' if the checkbox is checked
 
     try:
         scanned_id = s.loads(encrypted_token, max_age=300)
     except SignatureExpired:
-        flash("🔴 Error: QR Code Expired (Past 5 mins). Student must refresh their app.")
+        flash("🔴 Error: QR Code Expired. Student must refresh their app.")
         return redirect(url_for('driver_dashboard'))
     except Exception:
         flash("🔴 Error: Invalid QR Code.")
@@ -197,16 +201,28 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
+    # --- 1. SINGLE USE QR CHECK ---
     last_used_token = str(person.get("last_used_token", ""))
     if encrypted_token == last_used_token:
-        flash(f"🔴 Access Denied: QR Code already used. {person.get('Name')} must refresh their app to generate a new code.")
+        flash(f"🔴 Access Denied: QR Code already used. {person.get('Name')} must refresh their app.")
         return redirect(url_for('driver_dashboard'))
 
+    # --- 2. BUS ASSIGNMENT CHECK ---
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
+    # --- 3. STRICT BOARDING POINT ENFORCEMENT ---
+    assigned_stop = str(person.get("Boarding_Point", person.get("boarding_point", ""))).strip().upper()
+    
+    # If the student has a locked stop, and the driver is NOT actively overwriting it right now...
+    if assigned_stop and current_stop and lock_stop != 'on':
+        if current_stop != assigned_stop:
+            flash(f"🔴 Access Denied: {person.get('Name')} is locked to {assigned_stop}, not {current_stop}.")
+            return redirect(url_for('driver_dashboard'))
+
+    # --- 4. 2-SCAN DAILY LIMIT CHECK ---
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -220,15 +236,17 @@ def mark_attendance():
         daily_scan_count = 0
 
     if daily_scan_count >= 2:
-        flash(f"🔴 Access Denied: {person.get('Name')} has reached the daily limit (2 rides). Locked until tomorrow.")
+        flash(f"🔴 Access Denied: {person.get('Name')} has reached the daily limit (2 rides).")
         return redirect(url_for('driver_dashboard'))
 
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
+    # --- 5. SAVE TO DATABASE ---
     max_retries = 3
     for attempt in range(max_retries):
         try:
+            # 5A. Save to Attendance Log
             attendance_ws = sheet.worksheet("Attendance")
             try:
                 attendance_ws.get_all_records()
@@ -239,38 +257,43 @@ def mark_attendance():
             shift = person.get("Shift", "N/A")
             photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
 
+            # Determine what stop to log in the attendance sheet
+            logged_stop = current_stop if current_stop else assigned_stop
+
             attendance_ws.append_row([
                 scanned_id, person.get("Name"), bus_number, get_ist_time(),
-                role, person.get("Boarding_Point", "N/A"), current_scan_type, shift, photo_url
+                role, logged_stop, current_scan_type, shift, photo_url
             ])
 
+            # 5B. Update Student Record Limits & Single-Use Token
             target_ws = sheet.worksheet(target_ws_name)
             cell = target_ws.find(str(scanned_id))
             headers = target_ws.row_values(1)
 
-            if "last_scan_date" not in headers:
-                date_col = len(headers) + 1
-                target_ws.update_cell(1, date_col, "last_scan_date")
-            else:
-                date_col = headers.index("last_scan_date") + 1
+            def get_or_create_col(col_name):
+                if col_name not in headers:
+                    new_idx = len(headers) + 1
+                    target_ws.update_cell(1, new_idx, col_name)
+                    headers.append(col_name) # Keep local headers list updated
+                    return new_idx
+                return headers.index(col_name) + 1
 
-            if "daily_scan_count" not in headers:
-                count_col = len(headers) + 2 if "last_scan_date" not in headers else len(headers) + 1
-                target_ws.update_cell(1, count_col, "daily_scan_count")
-            else:
-                count_col = headers.index("daily_scan_count") + 1
-
-            if "last_used_token" not in headers:
-                token_col = len(headers) + 3 if "last_scan_date" not in headers else len(headers) + 1
-                target_ws.update_cell(1, token_col, "last_used_token")
-            else:
-                token_col = headers.index("last_used_token") + 1
+            date_col = get_or_create_col("last_scan_date")
+            count_col = get_or_create_col("daily_scan_count")
+            token_col = get_or_create_col("last_used_token")
 
             target_ws.update_cell(cell.row, date_col, last_scan_date)
             target_ws.update_cell(cell.row, count_col, daily_scan_count)
             target_ws.update_cell(cell.row, token_col, encrypted_token) 
 
-            flash(f"🟢 Success: {person.get('Name')} - {current_scan_type} Approved")
+            # 5C. PERMANENTLY LOCK THE BOARDING POINT IN DATABASE
+            if lock_stop == 'on' and current_stop:
+                bp_col = get_or_create_col("Boarding_Point")
+                target_ws.update_cell(cell.row, bp_col, current_stop)
+                flash(f"🟢 Success: {person.get('Name')} Approved. 🔒 Boarding Point permanently locked to {current_stop}.")
+            else:
+                flash(f"🟢 Success: {person.get('Name')} - {current_scan_type} Approved")
+                
             break 
 
         except Exception as e:
