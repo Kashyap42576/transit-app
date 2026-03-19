@@ -83,7 +83,7 @@
             <div style="color: #28a745; font-weight: bold; font-size: 18px; margin: 5px 0;">
                 {{ row.get('Scan_Type', 'Boarding') }}
             </div>
-            <div style="color: #bbb; font-size: 12px;">GPS Log: {{ row.get('GPS_Coordinates', 'N/A') }}</div>
+            <div style="color: #bbb; font-size: 14px;">Boarding: {{ row.get('Boarding_Point', 'N/A') }}</div>
             <div style="text-align: right; color: #666; font-size: 13px; margin-top: 5px;">Scanned at: {{ row.get('Timestamp', '').split(' ')[1] }}</div>
         </div>
         {% else %}
@@ -100,18 +100,17 @@
         let currentLat = "";
         let currentLon = "";
 
-        // Start GPS Tracking immediately when the page loads
         if ("geolocation" in navigator) {
             navigator.geolocation.watchPosition(
                 function(position) {
                     currentLat = position.coords.latitude;
                     currentLon = position.coords.longitude;
                     document.getElementById("gpsStatusBox").innerText = `📍 GPS Active (Accuracy: ${Math.round(position.coords.accuracy)}m)`;
-                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#28a745"; // Turn green when locked
+                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#28a745"; 
                 },
                 function(error) {
                     document.getElementById("gpsStatusBox").innerText = "⚠️ Location Error. Please enable GPS.";
-                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#dc3545"; // Turn red on error
+                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#dc3545"; 
                 },
                 { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
             );
@@ -125,7 +124,6 @@
 
             html5QrcodeScanner.clear();
             
-            // Set data into hidden form
             document.getElementById('scanned_id_input').value = decodedText;
             document.getElementById('lat_input').value = currentLat;
             document.getElementById('lon_input').value = currentLon;
@@ -136,7 +134,6 @@
                 document.getElementById('lock_gps_input').value = "";
             }
 
-            // Submit
             document.getElementById('scanForm').submit();
         }
         function onScanFailure(error) {}
