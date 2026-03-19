@@ -11,6 +11,12 @@
         .driver-info { font-size: 14px; color: #888; margin: 0; display: flex; justify-content: space-between; }
         .main-content { padding: 20px; }
         
+        /* --- GPS CONTROLS CSS --- */
+        .gps-status { background: #121212; padding: 12px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; border-left: 5px solid #007bff; color: #fff; font-size: 14px; font-weight: bold; text-align: center; }
+        .checkbox-container { display: flex; align-items: center; justify-content: center; gap: 10px; color: #eee; font-size: 15px; cursor: pointer; font-weight: bold; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 20px;}
+        .checkbox-container input[type="checkbox"] { width: 22px; height: 22px; cursor: pointer; accent-color: #ffc107;}
+        /* ------------------------ */
+
         #reader { width: 100%; max-width: 500px; margin: 0 auto 20px auto; background: #121212; border: 2px solid #333; border-radius: 8px; overflow: hidden; }
         #reader button { background: #28a745; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
         
@@ -42,11 +48,21 @@
             {% endif %}
         {% endwith %}
 
+        <div class="gps-status" id="gpsStatusBox">📍 Locating GPS... Please allow location access.</div>
+
+        <label class="checkbox-container">
+            <input type="checkbox" id="lock_gps_ui">
+            🔒 Lock Passenger to Current GPS
+        </label>
+
         <div id="reader"></div>
 
         <form id="scanForm" action="/mark_attendance" method="POST" style="display: none;">
             <input type="hidden" name="scanned_id" id="scanned_id_input">
             <input type="hidden" name="bus_number" value="{{ session['assigned_bus'] }}">
+            <input type="hidden" name="lat" id="lat_input">
+            <input type="hidden" name="lon" id="lon_input">
+            <input type="hidden" name="lock_gps" id="lock_gps_input">
         </form>
 
         <h3 style="color: #ffc107; margin-top: 30px;">Live Passenger Feed</h3>
@@ -54,11 +70,8 @@
         {% for row in logs %}
         <div class="passenger-card">
             <div style="display: flex; gap: 15px; align-items: center; border-bottom: 1px solid #222; padding-bottom: 10px; margin-bottom: 10px;">
-                
                 <img src="{{ row.get('Photo_URL', 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png') }}" 
-                     alt="Photo ID" 
-                     style="width: 65px; height: 65px; border-radius: 50%; object-fit: cover; border: 2px solid #ffc107; background: #333;">
-                
+                     alt="Photo ID" style="width: 65px; height: 65px; border-radius: 50%; object-fit: cover; border: 2px solid #ffc107; background: #333;">
                 <div style="flex-grow: 1;">
                     <div class="p-name">{{ row.get('Name', 'Unknown') }}</div>
                     <div style="display: flex; gap: 5px; margin-top: 5px;">
@@ -67,12 +80,10 @@
                     </div>
                 </div>
             </div>
-            
             <div style="color: #28a745; font-weight: bold; font-size: 18px; margin: 5px 0;">
                 {{ row.get('Scan_Type', 'Boarding') }}
             </div>
-            
-            <div style="color: #bbb; font-size: 14px;">Boarding: {{ row.get('Boarding_Point', 'N/A') }}</div>
+            <div style="color: #bbb; font-size: 12px;">GPS Log: {{ row.get('GPS_Coordinates', 'N/A') }}</div>
             <div style="text-align: right; color: #666; font-size: 13px; margin-top: 5px;">Scanned at: {{ row.get('Timestamp', '').split(' ')[1] }}</div>
         </div>
         {% else %}
@@ -86,9 +97,46 @@
     </div>
 
     <script>
+        let currentLat = "";
+        let currentLon = "";
+
+        // Start GPS Tracking immediately when the page loads
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition(
+                function(position) {
+                    currentLat = position.coords.latitude;
+                    currentLon = position.coords.longitude;
+                    document.getElementById("gpsStatusBox").innerText = `📍 GPS Active (Accuracy: ${Math.round(position.coords.accuracy)}m)`;
+                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#28a745"; // Turn green when locked
+                },
+                function(error) {
+                    document.getElementById("gpsStatusBox").innerText = "⚠️ Location Error. Please enable GPS.";
+                    document.getElementById("gpsStatusBox").style.borderLeftColor = "#dc3545"; // Turn red on error
+                },
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+            );
+        }
+
         function onScanSuccess(decodedText, decodedResult) {
+            if (!currentLat || !currentLon) {
+                alert("Waiting for GPS signal! Please ensure location services are enabled before scanning.");
+                return;
+            }
+
             html5QrcodeScanner.clear();
+            
+            // Set data into hidden form
             document.getElementById('scanned_id_input').value = decodedText;
+            document.getElementById('lat_input').value = currentLat;
+            document.getElementById('lon_input').value = currentLon;
+            
+            if(document.getElementById('lock_gps_ui').checked) {
+                document.getElementById('lock_gps_input').value = "on";
+            } else {
+                document.getElementById('lock_gps_input').value = "";
+            }
+
+            // Submit
             document.getElementById('scanForm').submit();
         }
         function onScanFailure(error) {}
