@@ -8,7 +8,7 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 import requests 
 import base64   
 import time  
-import math  # NEW: Required for GPS distance calculations
+import math  
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
@@ -26,8 +26,7 @@ def get_ist_time():
 
 # --- GPS DISTANCE CALCULATOR ---
 def calculate_distance(lat1, lon1, lat2, lon2):
-    # Calculates the distance in meters between two GPS points
-    R = 6371000 # Radius of Earth in meters
+    R = 6371000 
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
@@ -185,7 +184,6 @@ def mark_attendance():
     encrypted_token = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
-    # Extract GPS Data sent from the driver's phone
     current_lat = request.form.get('lat')
     current_lon = request.form.get('lon')
     lock_gps = request.form.get('lock_gps')
@@ -228,20 +226,18 @@ def mark_attendance():
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 3. GPS GEOFENCE CHECK ---
+    # 3. GPS Geofence Check
     locked_lat = str(person.get("Locked_Lat", ""))
     locked_lon = str(person.get("Locked_Lon", ""))
     
-    # If the student has a locked GPS location, and the driver is NOT actively overwriting it right now...
     if locked_lat and locked_lon and lock_gps != 'on' and current_lat and current_lon:
         try:
             distance = calculate_distance(float(locked_lat), float(locked_lon), float(current_lat), float(current_lon))
-            # 300 Meter Geofence radius
             if distance > 300:
                 flash(f"🔴 Access Denied: {person.get('Name')} is boarding at the wrong stop! ({int(distance)} meters away from registered location).")
                 return redirect(url_for('driver_dashboard'))
         except ValueError:
-            pass # Ignore if GPS coordinates are somehow corrupt
+            pass 
 
     # 4. Daily Limit Check
     today = get_ist_time().split(' ')[0]
@@ -267,24 +263,25 @@ def mark_attendance():
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Update Attendance Log (Records the GPS coordinates for admins to see)
             attendance_ws = sheet.worksheet("Attendance")
             try:
                 attendance_ws.get_all_records()
             except IndexError:
-                headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "GPS_Coordinates", "Scan_Type", "Shift", "Photo_URL"]
+                # Reverted GPS_Coordinates back to Boarding_Point
+                headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift", "Photo_URL"]
                 attendance_ws.insert_row(headers, 1)
 
             shift = person.get("Shift", "N/A")
             photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
-            gps_string = f"{current_lat},{current_lon}" if current_lat else "Unknown"
+            
+            # Pull the text location from the student profile
+            boarding_text = str(person.get("Boarding_Point", person.get("boarding_point", "N/A")))
 
             attendance_ws.append_row([
                 scanned_id, person.get("Name"), bus_number, get_ist_time(),
-                role, gps_string, current_scan_type, shift, photo_url
+                role, boarding_text, current_scan_type, shift, photo_url
             ])
 
-            # Update Student Record
             target_ws = sheet.worksheet(target_ws_name)
             cell = target_ws.find(str(scanned_id))
             headers = target_ws.row_values(1)
