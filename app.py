@@ -8,6 +8,7 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 import requests 
 import base64   
 import time  
+import math  # NEW: Required for GPS distance calculations
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
@@ -22,6 +23,19 @@ sheet = client.open("PU_Transit_Database")
 def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
+
+# --- GPS DISTANCE CALCULATOR ---
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # Calculates the distance in meters between two GPS points
+    R = 6371000 # Radius of Earth in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 # ==========================================
 # LOGIN ROUTES
@@ -164,16 +178,17 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# ATTENDANCE LOGIC (DYNAMIC BOARDING POINT LOCK)
+# ATTENDANCE LOGIC (WITH GPS GEOFENCING)
 # ==========================================
 @app.route('/mark_attendance', methods=['POST'])
 def mark_attendance():
     encrypted_token = request.form.get('scanned_id')
     bus_number = request.form.get('bus_number') 
     
-    # NEW: Grab the current stop and the lock signal from the driver's UI
-    current_stop = request.form.get('current_stop', '').strip().upper()
-    lock_stop = request.form.get('lock_stop') # Will equal 'on' if the checkbox is checked
+    # Extract GPS Data sent from the driver's phone
+    current_lat = request.form.get('lat')
+    current_lon = request.form.get('lon')
+    lock_gps = request.form.get('lock_gps')
 
     try:
         scanned_id = s.loads(encrypted_token, max_age=300)
@@ -201,28 +216,34 @@ def mark_attendance():
         flash("🔴 Error: User ID not found in Database.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 1. SINGLE USE QR CHECK ---
+    # 1. Single-Use Check
     last_used_token = str(person.get("last_used_token", ""))
     if encrypted_token == last_used_token:
-        flash(f"🔴 Access Denied: QR Code already used. {person.get('Name')} must refresh their app.")
+        flash(f"🔴 Access Denied: QR Code already used.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 2. BUS ASSIGNMENT CHECK ---
+    # 2. Bus Check
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         flash(f"🔴 Access Denied: {person.get('Name')} is NOT assigned to {bus_number}.")
         return redirect(url_for('driver_dashboard'))
 
-    # --- 3. STRICT BOARDING POINT ENFORCEMENT ---
-    assigned_stop = str(person.get("Boarding_Point", person.get("boarding_point", ""))).strip().upper()
+    # --- 3. GPS GEOFENCE CHECK ---
+    locked_lat = str(person.get("Locked_Lat", ""))
+    locked_lon = str(person.get("Locked_Lon", ""))
     
-    # If the student has a locked stop, and the driver is NOT actively overwriting it right now...
-    if assigned_stop and current_stop and lock_stop != 'on':
-        if current_stop != assigned_stop:
-            flash(f"🔴 Access Denied: {person.get('Name')} is locked to {assigned_stop}, not {current_stop}.")
-            return redirect(url_for('driver_dashboard'))
+    # If the student has a locked GPS location, and the driver is NOT actively overwriting it right now...
+    if locked_lat and locked_lon and lock_gps != 'on' and current_lat and current_lon:
+        try:
+            distance = calculate_distance(float(locked_lat), float(locked_lon), float(current_lat), float(current_lon))
+            # 300 Meter Geofence radius
+            if distance > 300:
+                flash(f"🔴 Access Denied: {person.get('Name')} is boarding at the wrong stop! ({int(distance)} meters away from registered location).")
+                return redirect(url_for('driver_dashboard'))
+        except ValueError:
+            pass # Ignore if GPS coordinates are somehow corrupt
 
-    # --- 4. 2-SCAN DAILY LIMIT CHECK ---
+    # 4. Daily Limit Check
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -246,26 +267,24 @@ def mark_attendance():
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # 5A. Save to Attendance Log
+            # Update Attendance Log (Records the GPS coordinates for admins to see)
             attendance_ws = sheet.worksheet("Attendance")
             try:
                 attendance_ws.get_all_records()
             except IndexError:
-                headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "Boarding_Point", "Scan_Type", "Shift", "Photo_URL"]
+                headers = ["ID", "Name", "Bus_Number", "Timestamp", "Role", "GPS_Coordinates", "Scan_Type", "Shift", "Photo_URL"]
                 attendance_ws.insert_row(headers, 1)
 
             shift = person.get("Shift", "N/A")
             photo_url = person.get("Photo_URL", "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")
-
-            # Determine what stop to log in the attendance sheet
-            logged_stop = current_stop if current_stop else assigned_stop
+            gps_string = f"{current_lat},{current_lon}" if current_lat else "Unknown"
 
             attendance_ws.append_row([
                 scanned_id, person.get("Name"), bus_number, get_ist_time(),
-                role, logged_stop, current_scan_type, shift, photo_url
+                role, gps_string, current_scan_type, shift, photo_url
             ])
 
-            # 5B. Update Student Record Limits & Single-Use Token
+            # Update Student Record
             target_ws = sheet.worksheet(target_ws_name)
             cell = target_ws.find(str(scanned_id))
             headers = target_ws.row_values(1)
@@ -274,23 +293,19 @@ def mark_attendance():
                 if col_name not in headers:
                     new_idx = len(headers) + 1
                     target_ws.update_cell(1, new_idx, col_name)
-                    headers.append(col_name) # Keep local headers list updated
+                    headers.append(col_name) 
                     return new_idx
                 return headers.index(col_name) + 1
 
-            date_col = get_or_create_col("last_scan_date")
-            count_col = get_or_create_col("daily_scan_count")
-            token_col = get_or_create_col("last_used_token")
+            target_ws.update_cell(cell.row, get_or_create_col("last_scan_date"), last_scan_date)
+            target_ws.update_cell(cell.row, get_or_create_col("daily_scan_count"), daily_scan_count)
+            target_ws.update_cell(cell.row, get_or_create_col("last_used_token"), encrypted_token) 
 
-            target_ws.update_cell(cell.row, date_col, last_scan_date)
-            target_ws.update_cell(cell.row, count_col, daily_scan_count)
-            target_ws.update_cell(cell.row, token_col, encrypted_token) 
-
-            # 5C. PERMANENTLY LOCK THE BOARDING POINT IN DATABASE
-            if lock_stop == 'on' and current_stop:
-                bp_col = get_or_create_col("Boarding_Point")
-                target_ws.update_cell(cell.row, bp_col, current_stop)
-                flash(f"🟢 Success: {person.get('Name')} Approved. 🔒 Boarding Point permanently locked to {current_stop}.")
+            # PERMANENTLY LOCK THE GPS IN DATABASE
+            if lock_gps == 'on' and current_lat and current_lon:
+                target_ws.update_cell(cell.row, get_or_create_col("Locked_Lat"), current_lat)
+                target_ws.update_cell(cell.row, get_or_create_col("Locked_Lon"), current_lon)
+                flash(f"🟢 Success: {person.get('Name')} Approved. 📍 Stop permanently locked to this GPS coordinate!")
             else:
                 flash(f"🟢 Success: {person.get('Name')} - {current_scan_type} Approved")
                 
