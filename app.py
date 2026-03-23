@@ -144,6 +144,7 @@ def upload_photo():
 # ==========================================
 @app.route('/b/<bus_id>')
 def scan_bus(bus_id):
+    # Converts URL format back to readable format (GJ06_BX_8763 -> GJ06 BX 8763)
     formatted_bus_id = bus_id.replace("_", " ")
 
     if 'user_id' not in session:
@@ -174,7 +175,7 @@ def confirm_boarding():
         return jsonify({"status": "error", "message": "Not logged in", "audio": "Authentication failed."})
 
     data = request.json
-    bus_number = data.get('bus_id')
+    bus_number = data.get('bus_id') # Base plate from the URL
     student_id = session['user_id']
 
     target_ws_name = "Students" if session.get('role') == "Student" else "Staff"
@@ -192,6 +193,13 @@ def confirm_boarding():
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         return jsonify({"status": "error", "message": f"Assigned to {allowed_buses}, not {bus_number}.", "audio": "Access Denied. Wrong bus."})
+
+    # SMART FILTER: Find the exact route string to save to the database cleanly
+    matched_full_bus = bus_number
+    for b in allowed_buses.split(','):
+        if bus_number in b:
+            matched_full_bus = b.strip()
+            break
 
     # 2. Daily Limit Check
     today = get_ist_time().split(' ')[0]
@@ -219,8 +227,9 @@ def confirm_boarding():
         boarding_pt = person.get("Boarding_Point", "N/A")
         photo_url = person.get("Photo_URL", "N/A")
 
+        # Saves the full string (e.g., GJ06 BX 8763 - Karjan) to the admin log
         attendance_ws.append_row([
-            student_id, person.get("Name"), bus_number, get_ist_time(),
+            student_id, person.get("Name"), matched_full_bus, get_ist_time(),
             session.get('role'), boarding_pt, current_scan_type, shift, photo_url
         ])
 
@@ -246,17 +255,28 @@ def confirm_boarding():
         return jsonify({"status": "error", "message": "Database busy. Try again.", "audio": "Network error. Please try again."})
 
 # ==========================================
-# DRIVER DASHBOARD (LIVE FEED ONLY)
+# DRIVER DASHBOARD (SMART FILTER LIVE FEED)
 # ==========================================
 @app.route('/driver_dashboard')
 def driver_dashboard():
     if session.get('role') != 'Driver': return redirect(url_for('driver_login'))
 
     assigned_bus = session.get('assigned_bus')
+    # Extract just the base license plate to match against scans
+    assigned_base = str(assigned_bus).split('-')[0].strip()
+
     try:
         all_logs = sheet.worksheet("Attendance").get_all_records()
         today = get_ist_time().split(' ')[0]
-        bus_logs = [r for r in all_logs if str(r.get('Bus_Number', '')) == str(assigned_bus) and today in str(r.get('Timestamp', ''))]
+        
+        bus_logs = []
+        for r in all_logs:
+            record_base = str(r.get('Bus_Number', '')).split('-')[0].strip()
+            
+            # Show the driver anyone who scanned their base plate today
+            if record_base == assigned_base and today in str(r.get('Timestamp', '')):
+                bus_logs.append(r)
+                
         bus_logs.reverse() 
     except Exception:
         bus_logs = []
