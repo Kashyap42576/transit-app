@@ -42,7 +42,6 @@ def login():
         if user and str(user.get("Password", "")).strip() == password:
             session.update({'user_id': user_id, 'role': role, 'user_name': user.get("Name", "User")})
             
-            # If they scanned a bus QR before logging in, send them back to the bus
             if 'pending_bus' in session:
                 bus = session.pop('pending_bus')
                 return redirect(url_for('scan_bus', bus_id=bus))
@@ -78,7 +77,7 @@ def driver_login():
     return render_template('driver_login.html', error=error)
 
 # ==========================================
-# STUDENT DASHBOARD & PHOTO UPLOAD
+# UNIFIED DASHBOARD & PHOTO UPLOAD
 # ==========================================
 @app.route('/dashboard')
 def dashboard():
@@ -94,6 +93,7 @@ def dashboard():
         user = None
 
     photo_url = user.get("Photo_URL", "") if user else ""
+    # Passing no bus_id means it will render the standard profile view
     return render_template('dashboard.html', user_name=session.get('user_name'), photo_url=photo_url)
 
 @app.route('/upload_photo', methods=['POST'])
@@ -130,6 +130,13 @@ def upload_photo():
                 col_index = headers.index("Photo_URL") + 1
 
             ws.update_cell(cell.row, col_index, permanent_url)
+            
+            # If they were trying to board before uploading, auto-redirect them to the bus now
+            if 'pending_bus' in session:
+                bus = session.pop('pending_bus')
+                flash("📸 Photo uploaded successfully! You are ready to board.")
+                return redirect(url_for('scan_bus', bus_id=bus))
+            
             flash("📸 Photo uploaded successfully! You can now board the buses.")
         else:
             flash("Error uploading photo to cloud. Please try again.")
@@ -140,11 +147,10 @@ def upload_photo():
     return redirect(url_for('dashboard'))
 
 # ==========================================
-# NEW: STUDENT SCANS THE BUS QR CODE
+# STUDENT SCANS THE BUS QR CODE
 # ==========================================
 @app.route('/b/<bus_id>')
 def scan_bus(bus_id):
-    # Converts URL format back to readable format (GJ06_BX_8763 -> GJ06 BX 8763)
     formatted_bus_id = bus_id.replace("_", " ")
 
     if 'user_id' not in session:
@@ -155,19 +161,20 @@ def scan_bus(bus_id):
     if session.get('role') in ['Driver', 'Admin']:
         return "Drivers/Admins cannot board as passengers."
         
-    # Check if they have uploaded a photo before allowing them to board
     target = "Students" if session['role'] == "Student" else "Staff"
     ws = sheet.worksheet(target)
     try:
         user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
         photo_url = user.get("Photo_URL", "") if user else ""
         if not photo_url or photo_url == "N/A":
+            session['pending_bus'] = bus_id
             flash("You must upload a profile photo before boarding.")
             return redirect(url_for('dashboard'))
     except Exception:
         pass
 
-    return render_template('board.html', bus_id=formatted_bus_id, user_name=session.get('user_name'))
+    # Render the unified dashboard, passing the bus_id to trigger the Boarding UI
+    return render_template('dashboard.html', bus_id=formatted_bus_id, user_name=session.get('user_name'))
 
 @app.route('/api/confirm_boarding', methods=['POST'])
 def confirm_boarding():
@@ -175,7 +182,7 @@ def confirm_boarding():
         return jsonify({"status": "error", "message": "Not logged in", "audio": "Authentication failed."})
 
     data = request.json
-    bus_number = data.get('bus_id') # Base plate from the URL
+    bus_number = data.get('bus_id') 
     student_id = session['user_id']
 
     target_ws_name = "Students" if session.get('role') == "Student" else "Staff"
@@ -189,19 +196,16 @@ def confirm_boarding():
     if not person:
         return jsonify({"status": "error", "message": "User ID not found in Database.", "audio": "User not found."})
 
-    # 1. Bus Assignment Check
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         return jsonify({"status": "error", "message": f"Assigned to {allowed_buses}, not {bus_number}.", "audio": "Access Denied. Wrong bus."})
 
-    # SMART FILTER: Find the exact route string to save to the database cleanly
     matched_full_bus = bus_number
     for b in allowed_buses.split(','):
         if bus_number in b:
             matched_full_bus = b.strip()
             break
 
-    # 2. Daily Limit Check
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -220,14 +224,12 @@ def confirm_boarding():
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
-    # 3. Save Data
     try:
         attendance_ws = sheet.worksheet("Attendance")
         shift = person.get("Shift", "N/A")
         boarding_pt = person.get("Boarding_Point", "N/A")
         photo_url = person.get("Photo_URL", "N/A")
 
-        # Saves the full string (e.g., GJ06 BX 8763 - Karjan) to the admin log
         attendance_ws.append_row([
             student_id, person.get("Name"), matched_full_bus, get_ist_time(),
             session.get('role'), boarding_pt, current_scan_type, shift, photo_url
@@ -255,14 +257,13 @@ def confirm_boarding():
         return jsonify({"status": "error", "message": "Database busy. Try again.", "audio": "Network error. Please try again."})
 
 # ==========================================
-# DRIVER DASHBOARD (SMART FILTER LIVE FEED)
+# DRIVER & ADMIN DASHBOARDS
 # ==========================================
 @app.route('/driver_dashboard')
 def driver_dashboard():
     if session.get('role') != 'Driver': return redirect(url_for('driver_login'))
 
     assigned_bus = session.get('assigned_bus')
-    # Extract just the base license plate to match against scans
     assigned_base = str(assigned_bus).split('-')[0].strip()
 
     try:
@@ -272,8 +273,6 @@ def driver_dashboard():
         bus_logs = []
         for r in all_logs:
             record_base = str(r.get('Bus_Number', '')).split('-')[0].strip()
-            
-            # Show the driver anyone who scanned their base plate today
             if record_base == assigned_base and today in str(r.get('Timestamp', '')):
                 bus_logs.append(r)
                 
