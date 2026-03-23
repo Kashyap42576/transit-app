@@ -1,25 +1,36 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Profile - PU Transit System</title>
+    <title>PU Transit System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; text-align: center; }
         .nav { background: #1a1a1a; padding: 20px; color: #ffc107; font-size: 24px; font-weight: bold; border-bottom: 3px solid #ffc107;}
         .content { padding: 40px 20px; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; width: 350px; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; width: 350px; box-sizing: border-box; }
         .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; width: 100%; box-sizing: border-box;}
         .flash-message { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #c3e6cb; font-weight: bold;}
-        .instruction-box { background: #e9f2ff; border: 2px dashed #007bff; padding: 15px; border-radius: 8px; margin-top: 20px; color: #0056b3; font-weight: bold; }
+        
+        /* Boarding Specific UI */
+        .bus-id { font-size: 28px; color: #007bff; font-weight: bold; margin: 20px 0; background: #e9f2ff; padding: 15px; border-radius: 8px; border: 2px dashed #007bff;}
+        .confirm-btn { background: #28a745; color: white; border: none; padding: 15px 30px; font-size: 20px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .confirm-btn:active { transform: scale(0.98); }
+        #result-box { margin-top: 25px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 18px; display: none; }
+        .success { background: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Scanner Specific UI */
+        #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #333; border-radius: 8px; overflow: hidden; background: #f8f9fa;}
+        #reader button { background: #28a745; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="nav">🚌 PU Transit System</div>
     <div class="content">
         <div class="card">
-            
-            <h2>Welcome, {{ user_name }}!</h2>
-            <p style="color: #555; font-size: 16px; margin-top: -10px;">{{ session['role'] }} Profile</p>
             
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -28,33 +39,135 @@
                     {% endfor %}
                 {% endif %}
             {% endwith %}
-            
-            {% if not photo_url or photo_url == "" or photo_url == "N/A" %}
+
+            {% if bus_id %}
                 
-                <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeeba;">
-                    <strong>📸 Mandatory Profile Photo</strong><br>
-                    Please upload a clear picture of your face so the captain can verify your identity upon boarding.
-                </div>
+                <h2 style="color: #1a1a1a; margin-bottom: 5px;">Ready to Board?</h2>
+                <p style="color: #666; font-size: 16px; margin-top: -5px;">Passenger: <strong>{{ user_name }}</strong></p>
                 
-                <form action="/upload_photo" method="POST" enctype="multipart/form-data">
-                    <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
-                    <button type="submit" style="background: #28a745; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 5px; width: 100%; cursor: pointer; font-size: 16px;">
-                        Upload Photo to Unlock Rides
-                    </button>
-                </form>
+                <div class="bus-id">{{ bus_id }}</div>
+                <div class="loader" id="spinner"></div>
+
+                <button class="confirm-btn" id="boardBtn" onclick="processBoarding()">Tap to Confirm Ride</button>
+                <div id="result-box"></div>
                 
+                <a href="/dashboard" class="logout-btn" style="background: #6c757d;">Cancel / Back to Profile</a>
+
+                <script>
+                    function speak(text) {
+                        if ('speechSynthesis' in window) {
+                            let msg = new SpeechSynthesisUtterance(text);
+                            msg.rate = 1.0; 
+                            msg.pitch = 1.1; 
+                            window.speechSynthesis.speak(msg);
+                        }
+                    }
+
+                    function processBoarding() {
+                        document.getElementById('boardBtn').style.display = 'none';
+                        document.getElementById('spinner').style.display = 'block';
+                        document.getElementById('result-box').style.display = 'none';
+
+                        fetch('/api/confirm_boarding', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ bus_id: "{{ bus_id }}" })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            document.getElementById('spinner').style.display = 'none';
+                            let resultBox = document.getElementById('result-box');
+                            resultBox.style.display = 'block';
+                            resultBox.innerText = data.message;
+                            
+                            speak(data.audio);
+
+                            if(data.status === 'success') {
+                                resultBox.className = 'success';
+                            } else {
+                                resultBox.className = 'error';
+                                document.getElementById('boardBtn').style.display = 'block';
+                                document.getElementById('boardBtn').innerText = "Try Again";
+                            }
+                        })
+                        .catch(error => {
+                            document.getElementById('spinner').style.display = 'none';
+                            speak("Network Error. Please try again.");
+                        });
+                    }
+                </script>
+
             {% else %}
                 
-                <img src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px;">
+                <h2>Welcome, {{ user_name }}!</h2>
+                <p style="color: #555; font-size: 16px; margin-top: -10px;">{{ session['role'] }} Profile</p>
                 
-                <div class="instruction-box">
-                    📷 How to Board:<br>
-                    <span style="font-size: 14px; font-weight: normal; color: #333;">Open your phone's camera and scan the QR code taped to the bus door to confirm your ride.</span>
-                </div>
+                {% if not photo_url or photo_url == "" or photo_url == "N/A" %}
+                    
+                    <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeeba;">
+                        <strong>📸 Mandatory Profile Photo</strong><br>
+                        Please upload a clear picture of your face so the captain can verify your identity upon boarding.
+                    </div>
+                    
+                    <form action="/upload_photo" method="POST" enctype="multipart/form-data">
+                        <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                        <button type="submit" style="background: #28a745; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 5px; width: 100%; cursor: pointer; font-size: 16px;">
+                            Upload Photo to Unlock Rides
+                        </button>
+                    </form>
+                    
+                {% else %}
+                    
+                    <img src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px; margin-bottom: 20px;">
+                    
+                    <button id="startScanBtn" class="confirm-btn" style="background: #007bff; margin-bottom: 20px;" onclick="startScanner()">
+                        📷 Scan Bus QR Code
+                    </button>
+
+                    <div id="reader-container" style="display: none;">
+                        <div id="reader"></div>
+                        <button onclick="cancelScan()" class="logout-btn" style="background: #6c757d; padding: 10px; margin-top: 15px;">Cancel Scan</button>
+                    </div>
+
+                {% endif %}
+                
+                <a href="/logout" class="logout-btn">Logout</a>
+
+                <script>
+                    let html5QrcodeScanner;
+
+                    function startScanner() {
+                        document.getElementById('startScanBtn').style.display = 'none';
+                        document.getElementById('reader-container').style.display = 'block';
+
+                        html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 220, height: 220} }, false);
+                        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+                    }
+
+                    function cancelScan() {
+                        if (html5QrcodeScanner) {
+                            html5QrcodeScanner.clear();
+                        }
+                        document.getElementById('startScanBtn').style.display = 'block';
+                        document.getElementById('reader-container').style.display = 'none';
+                    }
+
+                    function onScanSuccess(decodedText, decodedResult) {
+                        html5QrcodeScanner.clear();
+                        
+                        // Check if the QR code is a full URL or just the bus ID
+                        if(decodedText.includes('/b/')) {
+                            window.location.href = decodedText;
+                        } else {
+                            // If they scanned a basic QR that just says "GJ06_BX_8763", route them properly
+                            window.location.href = '/b/' + decodedText;
+                        }
+                    }
+                    function onScanFailure(error) {}
+                </script>
 
             {% endif %}
             
-            <a href="/logout" class="logout-btn">Logout</a>
         </div>
     </div>
 </body>
