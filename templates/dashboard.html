@@ -1,18 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Dashboard - PU Transit System</title>
+    <title>Profile - PU Transit System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="240">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; text-align: center; }
         .nav { background: #1a1a1a; padding: 20px; color: #ffc107; font-size: 24px; font-weight: bold; border-bottom: 3px solid #ffc107;}
         .content { padding: 40px 20px; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; }
-        .qr-code { margin: 20px 0; border: 5px solid #1a1a1a; padding: 10px; border-radius: 10px; max-width: 100%; height: auto;}
-        .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px;}
-        .totp-warning { color: #dc3545; font-size: 14px; font-weight: bold; margin-top: 10px; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; width: 350px; }
+        .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; width: 100%; box-sizing: border-box;}
         .flash-message { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #c3e6cb; font-weight: bold;}
+        .instruction-box { background: #e9f2ff; border: 2px dashed #007bff; padding: 15px; border-radius: 8px; margin-top: 20px; color: #0056b3; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -21,7 +19,7 @@
         <div class="card">
             
             <h2>Welcome, {{ user_name }}!</h2>
-            <p style="color: #555; font-size: 18px;">Role: <strong>{{ session['role'] }}</strong></p>
+            <p style="color: #555; font-size: 16px; margin-top: -10px;">{{ session['role'] }} Profile</p>
             
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -35,31 +33,27 @@
                 
                 <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeeba;">
                     <strong>📸 Mandatory Profile Photo</strong><br>
-                    Please upload a clear picture of your face. You cannot access your boarding pass until this is complete.
+                    Please upload a clear picture of your face so the captain can verify your identity upon boarding.
                 </div>
                 
                 <form action="/upload_photo" method="POST" enctype="multipart/form-data">
                     <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
                     <button type="submit" style="background: #28a745; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 5px; width: 100%; cursor: pointer; font-size: 16px;">
-                        Upload & Unlock QR
+                        Upload Photo to Unlock Rides
                     </button>
                 </form>
                 
             {% else %}
                 
-                <p style="margin-top: 20px; font-weight: bold; color: #28a745;">Show this QR Code to the Captain:</p>
-                <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ token }}" alt="Secure QR Code">
+                <img src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px;">
                 
-                <div class="totp-warning">⏱️ This QR code expires after a successful scan. You must refresh to generate a new QR Code.</div>
-                
-                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
-                    <img src="{{ photo_url }}" alt="Your Profile Photo" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid #007bff;">
-                    <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Registered Photo</p>
+                <div class="instruction-box">
+                    📷 How to Board:<br>
+                    <span style="font-size: 14px; font-weight: normal; color: #333;">Open your phone's camera and scan the QR code taped to the bus door to confirm your ride.</span>
                 </div>
 
             {% endif %}
             
-            <br>
             <a href="/logout" class="logout-btn">Logout</a>
         </div>
     </div>
