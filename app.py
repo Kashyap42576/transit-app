@@ -4,6 +4,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 from datetime import datetime
 import pytz
+import requests
+import base64
+import time
 
 app = Flask(__name__)
 app.secret_key = "pu_transit_secure_key_2026_final" 
@@ -75,21 +78,72 @@ def driver_login():
     return render_template('driver_login.html', error=error)
 
 # ==========================================
-# STUDENT DASHBOARD 
+# STUDENT DASHBOARD & PHOTO UPLOAD
 # ==========================================
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session or session.get('role') in ['Driver', 'Admin']: 
         return redirect(url_for('login'))
-    # Dashboard is now just a profile/history page, as scanning is done via the physical bus QR
-    return render_template('dashboard.html', user_name=session.get('user_name'))
+        
+    target = "Students" if session['role'] == "Student" else "Staff"
+    ws = sheet.worksheet(target)
+    
+    try:
+        user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
+    except Exception:
+        user = None
+
+    photo_url = user.get("Photo_URL", "") if user else ""
+    return render_template('dashboard.html', user_name=session.get('user_name'), photo_url=photo_url)
+
+@app.route('/upload_photo', methods=['POST'])
+def upload_photo():
+    if 'user_id' not in session: return redirect(url_for('login'))
+
+    file = request.files.get('photo')
+    if not file:
+        flash("No file selected.")
+        return redirect(url_for('dashboard'))
+
+    IMGBB_API_KEY = "4882000cc942a1f5d38c1b5636d84a35" 
+
+    try:
+        payload = {
+            "key": IMGBB_API_KEY,
+            "image": base64.b64encode(file.read()).decode('utf-8')
+        }
+        res = requests.post("https://api.imgbb.com/1/upload", data=payload)
+        upload_data = res.json()
+
+        if "data" in upload_data:
+            permanent_url = upload_data["data"]["url"]
+            target = "Students" if session['role'] == "Student" else "Staff"
+            ws = sheet.worksheet(target)
+
+            cell = ws.find(str(session['user_id']))
+            headers = ws.row_values(1)
+
+            if "Photo_URL" not in headers:
+                col_index = len(headers) + 1
+                ws.update_cell(1, col_index, "Photo_URL")
+            else:
+                col_index = headers.index("Photo_URL") + 1
+
+            ws.update_cell(cell.row, col_index, permanent_url)
+            flash("📸 Photo uploaded successfully! You can now board the buses.")
+        else:
+            flash("Error uploading photo to cloud. Please try again.")
+
+    except Exception as e:
+        flash(f"Upload failed: {str(e)}")
+
+    return redirect(url_for('dashboard'))
 
 # ==========================================
 # NEW: STUDENT SCANS THE BUS QR CODE
 # ==========================================
 @app.route('/b/<bus_id>')
 def scan_bus(bus_id):
-    # Convert URL format back to Bus format (e.g., GJ06_BX_8763 -> GJ06 BX 8763)
     formatted_bus_id = bus_id.replace("_", " ")
 
     if 'user_id' not in session:
@@ -99,6 +153,18 @@ def scan_bus(bus_id):
 
     if session.get('role') in ['Driver', 'Admin']:
         return "Drivers/Admins cannot board as passengers."
+        
+    # Check if they have uploaded a photo before allowing them to board
+    target = "Students" if session['role'] == "Student" else "Staff"
+    ws = sheet.worksheet(target)
+    try:
+        user = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(session['user_id'])), None)
+        photo_url = user.get("Photo_URL", "") if user else ""
+        if not photo_url or photo_url == "N/A":
+            flash("You must upload a profile photo before boarding.")
+            return redirect(url_for('dashboard'))
+    except Exception:
+        pass
 
     return render_template('board.html', bus_id=formatted_bus_id, user_name=session.get('user_name'))
 
@@ -151,10 +217,11 @@ def confirm_boarding():
         attendance_ws = sheet.worksheet("Attendance")
         shift = person.get("Shift", "N/A")
         boarding_pt = person.get("Boarding_Point", "N/A")
+        photo_url = person.get("Photo_URL", "N/A")
 
         attendance_ws.append_row([
             student_id, person.get("Name"), bus_number, get_ist_time(),
-            session.get('role'), boarding_pt, current_scan_type, shift, "N/A"
+            session.get('role'), boarding_pt, current_scan_type, shift, photo_url
         ])
 
         cell = ws.find(str(student_id))
@@ -195,6 +262,26 @@ def driver_dashboard():
         bus_logs = []
 
     return render_template('driver_dashboard.html', logs=bus_logs)
+
+@app.route('/admin_dashboard')
+def admin_dashboard():
+    if session.get('role') != 'Admin': return redirect(url_for('admin_login'))
+
+    try:
+        attendance_ws = sheet.worksheet("Attendance")
+        logs = attendance_ws.get_all_records()
+        logs.reverse()  
+        
+        unique_buses = sorted(list(set(str(log.get('Bus_Number', '')) for log in logs if log.get('Bus_Number'))))
+        unique_scan_types = sorted(list(set(str(log.get('Scan_Type', '')) for log in logs if log.get('Scan_Type'))))
+        
+    except Exception:
+        logs = []
+        unique_buses = []
+        unique_scan_types = []
+
+    return render_template('admin_dashboard.html', logs=logs, unique_buses=unique_buses, unique_scan_types=unique_scan_types)
+
 
 @app.route('/logout')
 def logout():
