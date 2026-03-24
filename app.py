@@ -42,6 +42,7 @@ def login():
         if user and str(user.get("Password", "")).strip() == password:
             session.update({'user_id': user_id, 'role': role, 'user_name': user.get("Name", "User")})
             
+            # If they scanned a bus QR before logging in, send them back to the bus
             if 'pending_bus' in session:
                 bus = session.pop('pending_bus')
                 return redirect(url_for('scan_bus', bus_id=bus))
@@ -76,8 +77,28 @@ def driver_login():
             error = "Invalid Driver Credentials"
     return render_template('driver_login.html', error=error)
 
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    error = None
+    if request.method == 'POST':
+        user_id = request.form.get('user_id', '').strip()
+        password = request.form.get('password', '').strip()
+
+        admin_sheet = sheet.worksheet("Admins")
+        try:
+            admin_user = next((item for item in admin_sheet.get_all_records() if str(item.get("Name", "")).strip() == user_id), None)
+        except Exception:
+            admin_user = None
+
+        if admin_user and str(admin_user.get("Password", "")).strip() == password:
+            session.update({'user_id': user_id, 'role': 'Admin'})
+            return redirect(url_for('admin_dashboard'))
+        else:
+            error = "Invalid Admin Credentials"
+    return render_template('admin_login.html', error=error)
+
 # ==========================================
-# UNIFIED DASHBOARD & PHOTO UPLOAD
+# UNIFIED DASHBOARD (DIGITAL ID CARD) & PHOTO
 # ==========================================
 @app.route('/dashboard')
 def dashboard():
@@ -92,9 +113,18 @@ def dashboard():
     except Exception:
         user = None
 
+    # Fetch all data needed for the Digital ID Card layout
     photo_url = user.get("Photo_URL", "") if user else ""
-    # Passing no bus_id means it will render the standard profile view
-    return render_template('dashboard.html', user_name=session.get('user_name'), photo_url=photo_url)
+    shift = user.get("Shift", "N/A") if user else "N/A"
+    boarding_point = user.get("Boarding_Point", "N/A") if user else "N/A"
+    user_id = session.get('user_id')
+
+    return render_template('dashboard.html', 
+                           user_name=session.get('user_name'), 
+                           photo_url=photo_url,
+                           user_id=user_id,
+                           shift=shift,
+                           boarding_point=boarding_point)
 
 @app.route('/upload_photo', methods=['POST'])
 def upload_photo():
@@ -131,7 +161,6 @@ def upload_photo():
 
             ws.update_cell(cell.row, col_index, permanent_url)
             
-            # If they were trying to board before uploading, auto-redirect them to the bus now
             if 'pending_bus' in session:
                 bus = session.pop('pending_bus')
                 flash("📸 Photo uploaded successfully! You are ready to board.")
@@ -173,7 +202,6 @@ def scan_bus(bus_id):
     except Exception:
         pass
 
-    # Render the unified dashboard, passing the bus_id to trigger the Boarding UI
     return render_template('dashboard.html', bus_id=formatted_bus_id, user_name=session.get('user_name'))
 
 @app.route('/api/confirm_boarding', methods=['POST'])
@@ -186,26 +214,37 @@ def confirm_boarding():
     student_id = session['user_id']
 
     target_ws_name = "Students" if session.get('role') == "Student" else "Staff"
-    ws = sheet.worksheet(target_ws_name)
     
-    try:
-        person = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(student_id)), None)
-    except Exception:
-        person = None
+    # --- ROBUST RETRY LOOP FOR GOOGLE SHEETS API ---
+    person = None
+    for attempt in range(3):
+        try:
+            ws = sheet.worksheet(target_ws_name)
+            person = next((item for item in ws.get_all_records() if str(item.get("ID", "")).strip() == str(student_id)), None)
+            break 
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+                continue
+            else:
+                return jsonify({"status": "error", "message": "Google servers busy. Please tap scan again.", "audio": "Network error. Please try again."})
 
     if not person:
         return jsonify({"status": "error", "message": "User ID not found in Database.", "audio": "User not found."})
 
+    # 1. Bus Assignment Check
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         return jsonify({"status": "error", "message": f"Assigned to {allowed_buses}, not {bus_number}.", "audio": "Access Denied. Wrong bus."})
 
+    # Match the full bus route string to log perfectly into Admin Dashboard
     matched_full_bus = bus_number
     for b in allowed_buses.split(','):
         if bus_number in b:
             matched_full_bus = b.strip()
             break
 
+    # 2. Daily Limit Check
     today = get_ist_time().split(' ')[0]
     last_scan_date = str(person.get('last_scan_date', person.get('Last_Scan_Date', '')))
     
@@ -224,6 +263,7 @@ def confirm_boarding():
     daily_scan_count += 1
     current_scan_type = f"Ride {daily_scan_count} of 2"
 
+    # 3. Save Data to Database
     try:
         attendance_ws = sheet.worksheet("Attendance")
         shift = person.get("Shift", "N/A")
