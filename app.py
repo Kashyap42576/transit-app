@@ -210,7 +210,7 @@ def confirm_boarding():
         return jsonify({"status": "error", "message": "Not logged in", "audio": "Authentication failed."})
 
     data = request.json
-    bus_number = data.get('bus_id') 
+    bus_number = data.get('bus_id') # THIS IS THE RAW SCANNED QR VALUE
     student_id = session['user_id']
 
     target_ws_name = "Students" if session.get('role') == "Student" else "Staff"
@@ -236,13 +236,6 @@ def confirm_boarding():
     allowed_buses = str(person.get("Assigned_Bus", person.get("assigned bus", person.get("assigned_bus", ""))))
     if bus_number not in allowed_buses:
         return jsonify({"status": "error", "message": f"Assigned to {allowed_buses}, not {bus_number}.", "audio": "Access Denied. Wrong bus."})
-
-    # Match the full bus route string to log perfectly into Admin Dashboard
-    matched_full_bus = bus_number
-    for b in allowed_buses.split(','):
-        if bus_number in b:
-            matched_full_bus = b.strip()
-            break
 
     # 2. Daily Limit Check
     today = get_ist_time().split(' ')[0]
@@ -270,8 +263,9 @@ def confirm_boarding():
         boarding_pt = person.get("Boarding_Point", "N/A")
         photo_url = person.get("Photo_URL", "N/A")
 
+        # LOGGING EXACTLY WHAT WAS SCANNED (e.g. GJ06 BX 8519)
         attendance_ws.append_row([
-            student_id, person.get("Name"), matched_full_bus, get_ist_time(),
+            student_id, person.get("Name"), bus_number, get_ist_time(),
             session.get('role'), boarding_pt, current_scan_type, shift, photo_url
         ])
 
