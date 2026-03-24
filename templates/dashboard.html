@@ -23,8 +23,8 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         /* Scanner Specific UI */
-        #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #333; border-radius: 8px; overflow: hidden; background: #f8f9fa;}
-        #reader button { background: #28a745; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+        #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #333; border-radius: 8px; overflow: hidden; background: #000;}
+        #reader video { object-fit: cover; } /* Ensures the camera feed fills the box perfectly */
     </style>
 </head>
 <body>
@@ -118,7 +118,7 @@
                     
                 {% else %}
                     
-                    <img src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px; margin-bottom: 20px;">
+                    <img id="profilePic" src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px; margin-bottom: 20px;">
                     
                     <button id="startScanBtn" class="confirm-btn" style="background: #007bff; margin-bottom: 20px;" onclick="startScanner()">
                         📷 Scan Bus QR Code
@@ -134,36 +134,68 @@
                 <a href="/logout" class="logout-btn">Logout</a>
 
                 <script>
-                    let html5QrcodeScanner;
+                    let html5QrCode;
 
                     function startScanner() {
+                        // Hide the button and profile pic, show the camera box
                         document.getElementById('startScanBtn').style.display = 'none';
+                        if(document.getElementById('profilePic')) document.getElementById('profilePic').style.display = 'none';
                         document.getElementById('reader-container').style.display = 'block';
 
-                        html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 220, height: 220} }, false);
-                        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+                        // Initialize the core QR engine
+                        html5QrCode = new Html5Qrcode("reader");
+
+                        // { facingMode: "environment" } forces the phone to use the rear camera
+                        html5QrCode.start(
+                            { facingMode: "environment" }, 
+                            { fps: 15, qrbox: {width: 250, height: 250} },
+                            onScanSuccess,
+                            onScanFailure
+                        ).catch((err) => {
+                            alert("Could not access rear camera. Please check your browser permissions.");
+                            cancelScan();
+                        });
                     }
 
-                    function cancelScan() {
-                        if (html5QrcodeScanner) {
-                            html5QrcodeScanner.clear();
-                        }
+                    function resetUI() {
                         document.getElementById('startScanBtn').style.display = 'block';
+                        if(document.getElementById('profilePic')) document.getElementById('profilePic').style.display = 'inline-block';
                         document.getElementById('reader-container').style.display = 'none';
                     }
 
-                    function onScanSuccess(decodedText, decodedResult) {
-                        html5QrcodeScanner.clear();
-                        
-                        // Check if the QR code is a full URL or just the bus ID
-                        if(decodedText.includes('/b/')) {
-                            window.location.href = decodedText;
+                    function cancelScan() {
+                        if (html5QrCode && html5QrCode.isScanning) {
+                            html5QrCode.stop().then(() => {
+                                html5QrCode.clear();
+                                resetUI();
+                            }).catch((err) => {
+                                console.error("Failed to stop scanner", err);
+                                resetUI();
+                            });
                         } else {
-                            // If they scanned a basic QR that just says "GJ06_BX_8763", route them properly
-                            window.location.href = '/b/' + decodedText;
+                            resetUI();
                         }
                     }
-                    function onScanFailure(error) {}
+
+                    function onScanSuccess(decodedText, decodedResult) {
+                        if (html5QrCode && html5QrCode.isScanning) {
+                            // Stop the camera as soon as it reads the code
+                            html5QrCode.stop().then(() => {
+                                html5QrCode.clear();
+                                
+                                // Route them to the boarding screen
+                                if(decodedText.includes('/b/')) {
+                                    window.location.href = decodedText;
+                                } else {
+                                    window.location.href = '/b/' + decodedText;
+                                }
+                            }).catch(err => console.error(err));
+                        }
+                    }
+                    
+                    function onScanFailure(error) {
+                        // Silently ignore failures until it finds a valid code
+                    }
                 </script>
 
             {% endif %}
