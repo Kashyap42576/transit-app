@@ -5,43 +5,149 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; text-align: center; }
-        .nav { background: #1a1a1a; padding: 20px; color: #ffc107; font-size: 24px; font-weight: bold; border-bottom: 3px solid #ffc107;}
-        .content { padding: 40px 20px; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 90%; width: 350px; box-sizing: border-box; }
-        .logout-btn { display: inline-block; background: #dc3545; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; width: 100%; box-sizing: border-box;}
-        .flash-message { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #c3e6cb; font-weight: bold;}
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #ffffff; margin: 0; padding: 0; text-align: center; }
         
-        /* Boarding Specific UI */
-        .bus-id { font-size: 28px; color: #007bff; font-weight: bold; margin: 20px 0; background: #e9f2ff; padding: 15px; border-radius: 8px; border: 2px dashed #007bff;}
-        .confirm-btn { background: #007bff; color: white; border: none; padding: 15px 30px; font-size: 20px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
-        .confirm-btn:active { transform: scale(0.98); }
-        .result-box { margin-top: 25px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 18px; display: none; }
-        .success { background: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* University Header Styling */
+        .uni-header { padding: 20px 10px 10px; }
+        .uni-logo-text { font-size: 28px; font-weight: bold; line-height: 1.1; }
+        .uni-black { color: #1a1a1a; }
+        .uni-red { color: #d32f2f; }
         
-        /* Scanner Specific UI */
-        #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #333; border-radius: 8px; overflow: hidden; background: #000;}
+        /* Yellow Pill Title */
+        .transport-pill { 
+            background: #ffe34c; 
+            color: #4a66d4; 
+            font-size: 24px; 
+            font-weight: 900; 
+            padding: 8px 30px; 
+            border-radius: 50px; 
+            display: inline-block; 
+            margin-top: 15px;
+            margin-bottom: -20px; /* Pulls the blue card up under it */
+            position: relative;
+            z-index: 10;
+        }
+
+        /* The Blue ID Card */
+        .id-card-container { padding: 0 15px; max-width: 400px; margin: 0 auto; }
+        .blue-card { 
+            background: #5b7cff; 
+            border-radius: 0; /* Matches your flat-edge image style */
+            padding: 90px 20px 40px; 
+            position: relative;
+            color: white;
+        }
+
+        /* Overlapping Profile Picture */
+        .profile-pic { 
+            width: 150px; 
+            height: 150px; 
+            border-radius: 50%; 
+            object-fit: cover; 
+            position: absolute; 
+            top: -75px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            background: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+
+        /* ID Text Stack */
+        .id-text-stack { font-size: 26px; font-weight: bold; line-height: 1.4; margin-bottom: 40px; }
+        
+        /* Huge Scan Button */
+        .scan-btn { 
+            background: #ffe34c; 
+            color: #221c54; 
+            border: none; 
+            padding: 15px 40px; 
+            font-size: 32px; 
+            font-weight: 900; 
+            border-radius: 50px; 
+            cursor: pointer; 
+            width: 90%; 
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15); 
+        }
+        .scan-btn:active { transform: scale(0.97); box-shadow: 0 3px 6px rgba(0,0,0,0.15); }
+
+        /* Utility Classes */
+        .logout-btn { display: inline-block; color: #d32f2f; font-weight: bold; margin-top: 30px; text-decoration: none; font-size: 16px;}
+        .flash-message { background: #d4edda; color: #155724; padding: 10px; margin: 15px; border-radius: 5px; font-weight: bold; }
+        
+        /* Scanner UI */
+        #reader-container { margin-top: 20px; background: white; border-radius: 10px; padding: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; background: #000; }
         #reader video { object-fit: cover; }
+        
+        /* Processing UI */
+        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 18px; display: none; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .loader { border: 4px solid rgba(255,255,255,0.3); border-top: 4px solid white; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div class="nav">🚌 PU Transit System</div>
-    <div class="content">
-        <div class="card">
-            
-            {% with messages = get_flashed_messages() %}
-                {% if messages %}
-                    {% for message in messages %}
-                        <div class="flash-message">{{ message }}</div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
+
+    <div class="uni-header">
+        <div class="uni-logo-text">
+            <span class="uni-black">Parul<sup>®</sup></span><br>
+            <span class="uni-red">University</span>
+        </div>
+    </div>
+
+    <div class="transport-pill">Transport Department</div>
+
+    <div class="id-card-container">
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if not photo_url or photo_url == "" or photo_url == "N/A" %}
+            <div class="blue-card" style="border-radius: 15px; padding-top: 40px;">
+                <h3 style="margin-top: 0;">📸 Missing Profile Photo</h3>
+                <p style="font-size: 14px; margin-bottom: 20px;">Please upload a clear picture of your face to generate your Digital ID and unlock bus access.</p>
+                <form action="/upload_photo" method="POST" enctype="multipart/form-data">
+                    <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; background: white; color: black; border-radius: 5px; box-sizing: border-box;">
+                    <button type="submit" class="scan-btn" style="font-size: 20px; padding: 12px;">Upload Photo</button>
+                </form>
+            </div>
+            <a href="/logout" class="logout-btn">Logout</a>
+
+        {% else %}
+            <div class="blue-card" id="digitalCard">
+                <img src="{{ photo_url }}" alt="Profile Photo" class="profile-pic">
+                
+                <div class="id-text-stack">
+                    {{ user_name }}<br>
+                    {{ user_id }}<br>
+                    {{ shift }}<br>
+                    {{ boarding_point }}
+                </div>
+
+                <button id="startScanBtn" class="scan-btn" onclick="startScanner()">Scan Bus QR</button>
+
+                <div id="reader-container" style="display: none;">
+                    <div id="reader"></div>
+                    <button onclick="cancelScan()" style="background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; margin-top: 10px; font-weight: bold; width: 100%;">Cancel Scan</button>
+                </div>
+
+                <div id="processing-container" style="display: none;">
+                    <h2 id="inAppStatusTitle">Processing Scan...</h2>
+                    <div class="loader" id="inAppSpinner"></div>
+                    <div id="inAppResultBox" class="result-box"></div>
+                    <button onclick="resetUI()" style="background: white; color: black; border: none; padding: 10px 20px; border-radius: 5px; margin-top: 15px; font-weight: bold; width: 100%; display: none;" id="inAppDoneBtn">Done</button>
+                </div>
+            </div>
+
+            <a href="/logout" class="logout-btn" id="logoutBtn">Logout Securely</a>
 
             <script>
-                // Global text-to-speech function
                 function speak(text) {
                     if ('speechSynthesis' in window) {
                         let msg = new SpeechSynthesisUtterance(text);
@@ -50,210 +156,153 @@
                         window.speechSynthesis.speak(msg);
                     }
                 }
-            </script>
 
-            {% if bus_id %}
-                
-                <h2 style="color: #1a1a1a; margin-bottom: 5px;" id="statusTitle">Processing Scan...</h2>
-                <p style="color: #666; font-size: 16px; margin-top: -5px;">Passenger: <strong>{{ user_name }}</strong></p>
-                
-                <div class="bus-id">{{ bus_id }}</div>
-                <div class="loader" id="spinner"></div>
+                let html5QrCode;
 
-                <div id="result-box" class="result-box"></div>
-                
-                <a href="/dashboard" class="logout-btn" style="background: #6c757d; display: none;" id="backBtn">Done / Back to Profile</a>
+                function startScanner() {
+                    document.getElementById('startScanBtn').style.display = 'none';
+                    document.getElementById('reader-container').style.display = 'block';
 
-                <script>
-                    // Auto-process the boarding the moment the page loads
-                    window.onload = function() {
-                        fetch('/api/confirm_boarding', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ bus_id: "{{ bus_id }}" })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            document.getElementById('spinner').style.display = 'none';
-                            document.getElementById('statusTitle').innerText = "Scan Complete";
-                            
-                            let resultBox = document.getElementById('result-box');
-                            resultBox.style.display = 'block';
-                            resultBox.innerText = data.message;
-                            
-                            speak(data.audio);
+                    html5QrCode = new Html5Qrcode("reader");
+                    html5QrCode.start(
+                        { facingMode: "environment" }, 
+                        { fps: 15, qrbox: {width: 250, height: 250} },
+                        onScanSuccess,
+                        onScanFailure
+                    ).catch((err) => {
+                        alert("Could not access rear camera. Please check your browser permissions.");
+                        cancelScan();
+                    });
+                }
 
-                            if(data.status === 'success') {
-                                resultBox.className = 'result-box success';
-                            } else {
-                                resultBox.className = 'result-box error';
-                            }
-                            document.getElementById('backBtn').style.display = 'block';
-                        })
-                        .catch(error => {
-                            document.getElementById('spinner').style.display = 'none';
-                            let resultBox = document.getElementById('result-box');
-                            resultBox.style.display = 'block';
-                            resultBox.innerText = "Network Error. Please try again.";
-                            resultBox.className = 'result-box error';
-                            document.getElementById('backBtn').style.display = 'block';
-                        });
-                    };
-                </script>
-
-            {% else %}
-                
-                <div id="profile-container">
-                    <h2>Welcome, {{ user_name }}!</h2>
-                    <p style="color: #555; font-size: 16px; margin-top: -10px;">{{ session['role'] }} Profile</p>
+                function resetUI() {
+                    document.getElementById('processing-container').style.display = 'none';
+                    document.getElementById('startScanBtn').style.display = 'block';
+                    document.getElementById('reader-container').style.display = 'none';
                     
-                    {% if not photo_url or photo_url == "" or photo_url == "N/A" %}
-                        <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeeba;">
-                            <strong>📸 Mandatory Profile Photo</strong><br>
-                            Please upload a clear picture of your face so the captain can verify your identity.
-                        </div>
-                        <form action="/upload_photo" method="POST" enctype="multipart/form-data">
-                            <input type="file" name="photo" accept="image/*" required style="margin-bottom: 15px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
-                            <button type="submit" style="background: #28a745; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 5px; width: 100%; cursor: pointer; font-size: 16px;">
-                                Upload Photo to Unlock Rides
-                            </button>
-                        </form>
-                    {% else %}
-                        <img id="profilePic" src="{{ photo_url }}" alt="Profile Photo" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #28a745; margin-top: 10px; margin-bottom: 20px;">
-                        
-                        <button id="startScanBtn" class="confirm-btn" onclick="startScanner()">
-                            📷 Scan Bus QR Code
-                        </button>
+                    document.getElementById('inAppStatusTitle').innerText = "Processing Scan...";
+                    document.getElementById('inAppSpinner').style.display = 'block';
+                    document.getElementById('inAppResultBox').style.display = 'none';
+                    document.getElementById('inAppDoneBtn').style.display = 'none';
+                }
 
-                        <div id="reader-container" style="display: none;">
-                            <div id="reader"></div>
-                            <button onclick="cancelScan()" class="logout-btn" style="background: #6c757d; padding: 10px; margin-top: 15px;">Cancel Scan</button>
-                        </div>
-                    {% endif %}
-                    
-                    <a href="/logout" class="logout-btn" id="logoutBtn">Logout</a>
-                </div>
-
-                <div id="processing-container" style="display: none;">
-                    <h2 style="color: #1a1a1a;" id="inAppStatusTitle">Processing Scan...</h2>
-                    <div class="loader" id="inAppSpinner"></div>
-                    <div id="inAppResultBox" class="result-box"></div>
-                    <button onclick="resetUI()" class="logout-btn" style="background: #6c757d; display: none;" id="inAppDoneBtn">Done</button>
-                </div>
-
-                <script>
-                    let html5QrCode;
-
-                    function startScanner() {
-                        document.getElementById('startScanBtn').style.display = 'none';
-                        if(document.getElementById('profilePic')) document.getElementById('profilePic').style.display = 'none';
-                        document.getElementById('logoutBtn').style.display = 'none';
-                        document.getElementById('reader-container').style.display = 'block';
-
-                        html5QrCode = new Html5Qrcode("reader");
-                        html5QrCode.start(
-                            { facingMode: "environment" }, 
-                            { fps: 15, qrbox: {width: 250, height: 250} },
-                            onScanSuccess,
-                            onScanFailure
-                        ).catch((err) => {
-                            alert("Could not access rear camera. Please check your browser permissions.");
-                            cancelScan();
-                        });
-                    }
-
-                    function resetUI() {
-                        document.getElementById('processing-container').style.display = 'none';
-                        document.getElementById('profile-container').style.display = 'block';
-                        document.getElementById('startScanBtn').style.display = 'block';
-                        if(document.getElementById('profilePic')) document.getElementById('profilePic').style.display = 'inline-block';
-                        document.getElementById('logoutBtn').style.display = 'block';
-                        document.getElementById('reader-container').style.display = 'none';
-                        
-                        // Reset processing text
-                        document.getElementById('inAppStatusTitle').innerText = "Processing Scan...";
-                        document.getElementById('inAppSpinner').style.display = 'block';
-                        document.getElementById('inAppResultBox').style.display = 'none';
-                        document.getElementById('inAppDoneBtn').style.display = 'none';
-                    }
-
-                    function cancelScan() {
-                        if (html5QrCode && html5QrCode.isScanning) {
-                            html5QrCode.stop().then(() => {
-                                html5QrCode.clear();
-                                resetUI();
-                            }).catch((err) => {
-                                console.error("Failed to stop scanner", err);
-                                resetUI();
-                            });
-                        } else {
+                function cancelScan() {
+                    if (html5QrCode && html5QrCode.isScanning) {
+                        html5QrCode.stop().then(() => {
+                            html5QrCode.clear();
                             resetUI();
-                        }
-                    }
+                        }).catch((err) => { resetUI(); });
+                    } else { resetUI(); }
+                }
 
-                    function onScanSuccess(decodedText, decodedResult) {
-                        if (html5QrCode && html5QrCode.isScanning) {
-                            html5QrCode.stop().then(() => {
-                                html5QrCode.clear();
+                function onScanSuccess(decodedText, decodedResult) {
+                    if (html5QrCode && html5QrCode.isScanning) {
+                        html5QrCode.stop().then(() => {
+                            html5QrCode.clear();
+                            
+                            let busId = decodedText;
+                            if(decodedText.includes('/b/')) {
+                                let parts = decodedText.split('/b/');
+                                busId = parts[parts.length - 1];
+                            }
+                            busId = busId.replace(/_/g, " ");
+
+                            document.getElementById('startScanBtn').style.display = 'none';
+                            document.getElementById('reader-container').style.display = 'none';
+                            document.querySelector('.id-text-stack').style.display = 'none'; 
+                            document.getElementById('processing-container').style.display = 'block';
+
+                            fetch('/api/confirm_boarding', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ bus_id: busId })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                document.getElementById('inAppSpinner').style.display = 'none';
+                                document.getElementById('inAppStatusTitle').innerText = "Scan Complete";
                                 
-                                // Extract the Bus ID from the QR Code
-                                let busId = decodedText;
-                                if(decodedText.includes('/b/')) {
-                                    let parts = decodedText.split('/b/');
-                                    busId = parts[parts.length - 1];
-                                }
-                                // Format it cleanly for the backend (GJ06_BX_8763 -> GJ06 BX 8763)
-                                busId = busId.replace(/_/g, " ");
+                                let resultBox = document.getElementById('inAppResultBox');
+                                resultBox.style.display = 'block';
+                                resultBox.innerText = data.message;
+                                
+                                speak(data.audio);
 
-                                // Transition to Processing Screen instantly
-                                document.getElementById('profile-container').style.display = 'none';
-                                document.getElementById('processing-container').style.display = 'block';
-
-                                // Fire the API Request silently in the background
-                                fetch('/api/confirm_boarding', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ bus_id: busId })
-                                })
-                                .then(response => response.json())
-                                .then(data => {
-                                    document.getElementById('inAppSpinner').style.display = 'none';
-                                    document.getElementById('inAppStatusTitle').innerText = "Scan Complete";
-                                    
-                                    let resultBox = document.getElementById('inAppResultBox');
-                                    resultBox.style.display = 'block';
-                                    resultBox.innerText = data.message;
-                                    
-                                    speak(data.audio);
-
-                                    if(data.status === 'success') {
-                                        resultBox.className = 'result-box success';
-                                    } else {
-                                        resultBox.className = 'result-box error';
-                                    }
+                                if(data.status === 'success') {
+                                    resultBox.className = 'result-box success';
                                     document.getElementById('inAppDoneBtn').style.display = 'block';
-                                })
-                                .catch(error => {
-                                    document.getElementById('inAppSpinner').style.display = 'none';
-                                    let resultBox = document.getElementById('inAppResultBox');
-                                    resultBox.style.display = 'block';
-                                    resultBox.innerText = "Network Error. Please try again.";
+                                    
+                                    // Refresh the page after 2 seconds to revert to the ID card
+                                    setTimeout(() => { window.location.reload(); }, 2500);
+                                } else {
                                     resultBox.className = 'result-box error';
                                     document.getElementById('inAppDoneBtn').style.display = 'block';
-                                });
+                                    document.getElementById('inAppDoneBtn').onclick = function() { window.location.reload(); };
+                                }
+                            })
+                            .catch(error => {
+                                document.getElementById('inAppSpinner').style.display = 'none';
+                                let resultBox = document.getElementById('inAppResultBox');
+                                resultBox.style.display = 'block';
+                                resultBox.innerText = "Network Error. Please try again.";
+                                resultBox.className = 'result-box error';
+                                document.getElementById('inAppDoneBtn').style.display = 'block';
+                                document.getElementById('inAppDoneBtn').onclick = function() { window.location.reload(); };
+                            });
 
-                            }).catch(err => console.error(err));
-                        }
+                        }).catch(err => console.error(err));
                     }
-                    
-                    function onScanFailure(error) {
-                        // Silently ignore failures until the camera locks onto a valid code
-                    }
-                </script>
-
-            {% endif %}
-            
-        </div>
+                }
+                
+                function onScanFailure(error) {}
+            </script>
+        {% endif %}
     </div>
+
+    {% if bus_id %}
+    <script>
+        document.getElementById('digitalCard').innerHTML = `
+            <div id="processing-container" style="display: block;">
+                <h2 id="inAppStatusTitle">Processing Scan...</h2>
+                <div class="loader" id="inAppSpinner"></div>
+                <div id="inAppResultBox" class="result-box"></div>
+                <button onclick="window.location.href='/dashboard'" style="background: white; color: black; border: none; padding: 10px 20px; border-radius: 5px; margin-top: 15px; font-weight: bold; width: 100%; display: none;" id="inAppDoneBtn">Done</button>
+            </div>
+        `;
+        
+        window.onload = function() {
+            fetch('/api/confirm_boarding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bus_id: "{{ bus_id }}" })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('inAppSpinner').style.display = 'none';
+                document.getElementById('inAppStatusTitle').innerText = "Scan Complete";
+                let resultBox = document.getElementById('inAppResultBox');
+                resultBox.style.display = 'block';
+                resultBox.innerText = data.message;
+                speak(data.audio);
+                if(data.status === 'success') {
+                    resultBox.className = 'result-box success';
+                    setTimeout(() => { window.location.href = '/dashboard'; }, 2500);
+                } else {
+                    resultBox.className = 'result-box error';
+                    document.getElementById('inAppDoneBtn').style.display = 'block';
+                }
+            })
+            .catch(error => {
+                document.getElementById('inAppSpinner').style.display = 'none';
+                let resultBox = document.getElementById('inAppResultBox');
+                resultBox.style.display = 'block';
+                resultBox.innerText = "Network Error.";
+                resultBox.className = 'result-box error';
+                document.getElementById('inAppDoneBtn').style.display = 'block';
+            });
+        };
+    </script>
+    {% endif %}
+
 </body>
 </html>
